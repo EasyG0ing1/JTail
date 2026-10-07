@@ -77,6 +77,10 @@ public final class TcpConn {
     private long lastRecvNanos = System.nanoTime();
     private ScheduledFuture<?> kaTimer;
 
+    // challenge-ACK rate limiting
+    private double challengeTokens = 10;
+    private long challengeRefillNanos = System.nanoTime();
+
     // lifecycle
     private boolean appClosed, readShutdown;
     private IOException error;
@@ -112,10 +116,17 @@ public final class TcpConn {
             c.ssthresh = Long.MAX_VALUE / 4;
             c.rcvWscale = RCV_WSCALE;
             c.state = State.SYN_SENT;
-            c.sendSyn(false);
-            c.armRto();
         }
         return c;
+    }
+
+    /** Sends the SYN. Called by the stack only after the connection is registered, so a fast reply finds it. */
+    void startActive() {
+        synchronized (lock) {
+            if (state != State.SYN_SENT) return;
+            sendSyn(false);
+            armRto();
+        }
     }
 
     static TcpConn passive(Host host, byte[] localIp, int localPort, byte[] remoteIp, int remotePort, int baseMss,
@@ -135,10 +146,17 @@ public final class TcpConn {
             c.cwnd = initialCwnd(c.mss);
             c.ssthresh = Long.MAX_VALUE / 4;
             c.state = State.SYN_RCVD;
-            c.sendSyn(true);
-            c.armRto();
         }
         return c;
+    }
+
+    /** Sends the SYN-ACK. Called by the stack only after the connection is registered. */
+    void startPassive() {
+        synchronized (lock) {
+            if (state != State.SYN_RCVD) return;
+            sendSyn(true);
+            armRto();
+        }
     }
 
     private static long initialCwnd(int mss) { return 10L * mss; }
@@ -341,6 +359,16 @@ public final class TcpConn {
         emit(s);
     }
 
+    /** ACK sent in reply to an unacceptable segment; rate limited so two confused stacks cannot ACK-storm (RFC 5961). */
+    private void sendChallengeAck() {
+        long now = System.nanoTime();
+        challengeTokens = Math.min(10, challengeTokens + (now - challengeRefillNanos) / 1e9 * 10);
+        challengeRefillNanos = now;
+        if (challengeTokens < 1) return;
+        challengeTokens -= 1;
+        sendAck();
+    }
+
     private void sendAck() {
         TcpSegment s = new TcpSegment();
         s.seq = sndNxt;
@@ -358,8 +386,17 @@ public final class TcpConn {
     }
 
     /** Transmits as much queued data (and FIN) as the congestion and receive windows allow. */
-    private void trySend() {
+    private void trySend() { trySend(false); }
+
+    /**
+     * @param forceOne send at least one segment even if the windows are closed (retransmission / window probe).
+     *
+     * Connection state (sndNxt, sndMax, RTT timing, RTO) is always updated before the segment is handed to the
+     * network layer: with a synchronous link the peer's ACK re-enters this connection from inside {@code emit}.
+     */
+    private void trySend(boolean forceOne) {
         if (state == State.SYN_SENT || state == State.SYN_RCVD || state == State.CLOSED || state == State.TIME_WAIT) return;
+        boolean forced = forceOne;
         while (true) {
             int inflight = sndNxt - sndUna;
             long wnd = Math.min(cwnd, sndWnd);
@@ -369,34 +406,37 @@ public final class TcpConn {
             if (unsent > 0) {
                 int len;
                 if (avail <= 0) {
-                    if (sndWnd == 0 && inflight == 0) len = 1; // zero-window probe
+                    if (forced) len = Math.min(mss, unsent);              // retransmission goes out regardless of the windows
+                    else if (sndWnd == 0 && inflight == 0) len = 1;       // zero-window probe
                     else break;
                 } else {
                     len = (int) Math.min(Math.min(mss, unsent), avail);
                 }
+                forced = false;
                 byte[] data = new byte[len];
                 sendQ.peek(sndNxt - sendBaseSeq, data, 0, len);
                 TcpSegment s = new TcpSegment();
                 s.seq = sndNxt;
-                s.ack = rcvNxt;
                 s.flags = TcpSegment.ACK | (len == unsent ? TcpSegment.PSH : 0);
-                s.window = advertisedWindowField();
                 s.data = data;
                 if (!rttActive && !inRecovery) { rttActive = true; rttSeq = sndNxt + len; rttStartNanos = System.nanoTime(); }
-                emit(s);
                 sndNxt += len;
                 if (gt(sndNxt, sndMax)) sndMax = sndNxt;
                 armRtoIfIdle();
+                s.ack = rcvNxt;
+                s.window = advertisedWindowField();
+                emit(s);
             } else if (finQueued && sndNxt == finSeq) {
                 TcpSegment s = new TcpSegment();
                 s.seq = sndNxt;
-                s.ack = rcvNxt;
                 s.flags = TcpSegment.FIN | TcpSegment.ACK;
-                s.window = advertisedWindowField();
-                emit(s);
                 sndNxt++;
                 if (gt(sndNxt, sndMax)) sndMax = sndNxt;
                 armRtoIfIdle();
+                s.ack = rcvNxt;
+                s.window = advertisedWindowField();
+                emit(s);
+                forced = false;
             } else {
                 break;
             }
@@ -438,18 +478,10 @@ public final class TcpConn {
                 inRecovery = false;
                 dupAcks = 0;
                 sndNxt = sndUna;           // go-back-N from the first unacknowledged byte
-                trySendForce();
+                trySend(true);
             }
             rtoTimer = host.timers().schedule(this::onRto, rtoMs, TimeUnit.MILLISECONDS);
         }
-    }
-
-    /** Like {@link #trySend} but guarantees at least one segment goes out (the retransmission). */
-    private void trySendForce() {
-        long saved = sndWnd;
-        if (sndWnd == 0) sndWnd = 1; // let the probe/retransmit through; real window restored on next ACK
-        trySend();
-        sndWnd = saved;
     }
 
     // ---- segment input ----
@@ -481,7 +513,7 @@ public final class TcpConn {
         else acceptable = wnd != 0 && ((ge(seg.seq, rcvNxt) && lt(seg.seq, rcvNxt + wnd))
                 || (ge(seg.seq + segLen - 1, rcvNxt) && lt(seg.seq + segLen - 1, rcvNxt + wnd)));
         if (!acceptable) {
-            if (!seg.has(TcpSegment.RST)) sendAck();
+            if (!seg.has(TcpSegment.RST)) sendChallengeAck();
             return;
         }
 
@@ -553,7 +585,7 @@ public final class TcpConn {
 
     private void processAck(TcpSegment seg) {
         int ack = seg.ack;
-        if (gt(ack, sndMax)) { sendAck(); return; }          // acks data we never sent
+        if (gt(ack, sndMax)) { sendChallengeAck(); return; }  // acks data we never sent
         if (lt(ack, sndUna)) return;                          // stale
         boolean windowOpened = ((long) seg.window << sndWscale) > sndWnd;
         updateWindow(seg);
@@ -615,22 +647,23 @@ public final class TcpConn {
     }
 
     private void retransmitFirst() {
-        int save = sndNxt;
-        sndNxt = sndUna;
-        int unsent = sendBaseSeq + sendQ.size() - sndNxt;
+        int unsent = sendBaseSeq + sendQ.size() - sndUna;
+        TcpSegment s = new TcpSegment();
+        s.seq = sndUna;
         if (unsent > 0) {
             int len = Math.min(mss, unsent);
             byte[] data = new byte[len];
-            sendQ.peek(sndNxt - sendBaseSeq, data, 0, len);
-            TcpSegment s = new TcpSegment();
-            s.seq = sndNxt; s.ack = rcvNxt; s.flags = TcpSegment.ACK; s.window = advertisedWindowField(); s.data = data;
-            emit(s);
-        } else if (finQueued && sndNxt == finSeq) {
-            TcpSegment s = new TcpSegment();
-            s.seq = sndNxt; s.ack = rcvNxt; s.flags = TcpSegment.FIN | TcpSegment.ACK; s.window = advertisedWindowField();
-            emit(s);
+            sendQ.peek(sndUna - sendBaseSeq, data, 0, len);
+            s.flags = TcpSegment.ACK;
+            s.data = data;
+        } else if (finQueued && sndUna == finSeq) {
+            s.flags = TcpSegment.FIN | TcpSegment.ACK;
+        } else {
+            return;
         }
-        sndNxt = save;
+        s.ack = rcvNxt;
+        s.window = advertisedWindowField();
+        emit(s);
     }
 
     private void onFinAcked() {

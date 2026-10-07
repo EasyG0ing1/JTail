@@ -45,6 +45,14 @@ public final class WgDevice implements AutoCloseable {
         return t;
     });
     private volatile boolean closed;
+    private static final System.Logger LOG = System.getLogger("com.simtechdata.jtail.wg");
+
+    // Global limit on handshake initiations we are willing to process. Anyone who knows our public key can craft a
+    // message that passes the cheap MAC check, and each one costs a Diffie-Hellman; WireGuard's cookie mechanism exists
+    // for this reason. Excess initiations are simply dropped (a legitimate peer retries).
+    private static final double INITIATION_RATE_PER_SEC = 200, INITIATION_BURST = 100;
+    private double initiationTokens = INITIATION_BURST;
+    private long initiationRefillNanos = System.nanoTime();
 
     private record Route(IpPrefix prefix, WgPeer peer) {}
 
@@ -244,8 +252,11 @@ public final class WgDevice implements AutoCloseable {
                 case MSG_TRANSPORT -> { if (d.length >= MIN_TRANSPORT) handleTransport(d, source); }
                 default -> { }
             }
-        } catch (AEADBadTagException | RuntimeException ignored) {
-            // malformed, unauthenticated or unknown-peer traffic is silently dropped, as WireGuard specifies
+        } catch (AEADBadTagException ignored) {
+            // unauthenticated traffic is silently dropped, as WireGuard specifies
+        } catch (RuntimeException e) {
+            // malformed input must not escape, but an unexpected exception is worth seeing when debugging
+            LOG.log(System.Logger.Level.TRACE, "dropped datagram after exception", e);
         }
     }
 
@@ -254,8 +265,18 @@ public final class WgDevice implements AutoCloseable {
         return MessageDigest.isEqual(expect, Arrays.copyOfRange(msg, macOffset, macOffset + 16));
     }
 
+    private synchronized boolean takeInitiationToken() {
+        long now = System.nanoTime();
+        initiationTokens = Math.min(INITIATION_BURST, initiationTokens + (now - initiationRefillNanos) / 1e9 * INITIATION_RATE_PER_SEC);
+        initiationRefillNanos = now;
+        if (initiationTokens < 1) return false;
+        initiationTokens -= 1;
+        return true;
+    }
+
     private void handleInitiation(byte[] msg, Object source) throws AEADBadTagException {
         if (!macOk(msg, 116)) return;
+        if (!takeInitiationToken()) return;
         Handshake.Consumed c = Handshake.consumeInitiation(msg, privateKey, publicKey, pub -> {
             WgPeer p = peersByKey.get(ByteBuffer.wrap(pub));
             return p == null ? null : p.staticSecret();
@@ -360,7 +381,6 @@ public final class WgDevice implements AutoCloseable {
 
         boolean rekey = false;
         synchronized (peer) {
-            if (peer == null) return;
             if (kp == peer.next) { // first authenticated packet confirms the responder-side session
                 if (peer.previous != null) indexTable.remove(peer.previous.localIndex);
                 peer.previous = peer.current;
