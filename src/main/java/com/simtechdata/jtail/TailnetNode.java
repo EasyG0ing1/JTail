@@ -7,7 +7,10 @@ import com.simtechdata.jtail.derp.DerpManager;
 import com.simtechdata.jtail.crypto.Hex;
 import com.simtechdata.jtail.filter.PacketFilter;
 import com.simtechdata.jtail.magicsock.Magicsock;
+import com.simtechdata.jtail.net.HttpProxy;
+import com.simtechdata.jtail.net.TailnetDialer;
 import com.simtechdata.jtail.net.TailnetServerSocket;
+import com.simtechdata.jtail.net.TailnetSocketFactory;
 import com.simtechdata.jtail.net.TailnetSocket;
 import com.simtechdata.jtail.netstack.Netstack;
 import com.simtechdata.jtail.netstack.TcpConn;
@@ -117,6 +120,10 @@ final class TailnetNode implements Tailnet {
         if (r.nodeKeyExpired()) { // the server remembers this node but its key has expired: rotate and re-register
             byte[] old = identity.rotateNodeKey();
             r = registerWithRetry(old);
+            if (r.nodeKeyExpired()) {
+                throw new JTailException("the control server still reports this node's key as expired after rotating it; "
+                        + "the node may need to be re-approved or removed in the admin console");
+            }
         }
         if (!r.error().isEmpty()) throw new JTailException("control server refused registration: " + r.error());
         if (!r.authUrl().isEmpty()) {
@@ -223,6 +230,10 @@ final class TailnetNode implements Tailnet {
 
     private void onMap(NetMap.Snapshot s) {
         if (closed.get() || s.self() == null) return;
+        Node me = s.self();
+        if (me.expired || (me.keyExpiry != null && me.keyExpiry.isBefore(java.time.Instant.now()))) {
+            LOG.log(System.Logger.Level.WARNING, "this node's key has expired; peers will refuse its traffic until it re-registers");
+        }
         this.snap = s;
         Derp.Map_ dm = s.derpMap();
         if (dm != null) derp.setMap(dm);
@@ -400,13 +411,22 @@ final class TailnetNode implements Tailnet {
     @Override public Socket dial(String host, int port) throws IOException { return dial(host, port, 30_000); }
 
     @Override public Socket dial(String host, int port, int connectTimeoutMillis) throws IOException {
+        TailnetDialer.Dialed d = dialInternal(host, port, connectTimeoutMillis);
+        return new TailnetSocket(d.conn(), d.local(), d.remote());
+    }
+
+    private TailnetDialer.Dialed dialInternal(String host, int port, int connectTimeoutMillis) throws IOException {
         Netstack s = requireStack();
         InetAddress ip = resolve(host);
         if (dev.routeFor(ip.getAddress()) == null) throw new java.net.NoRouteToHostException("no route to " + host + " (" + ip.getHostAddress() + ")");
         TcpConn c = s.dialTcp(ip.getAddress(), port, connectTimeoutMillis);
-        return new TailnetSocket(c, new InetSocketAddress(InetAddress.getByAddress(c.localAddress()), c.localPort()),
+        return new TailnetDialer.Dialed(c, new InetSocketAddress(InetAddress.getByAddress(c.localAddress()), c.localPort()),
                 new InetSocketAddress(ip, port));
     }
+
+    @Override public javax.net.SocketFactory socketFactory() { return new TailnetSocketFactory(this::dialInternal); }
+
+    @Override public HttpProxy startHttpProxy(int port) throws IOException { return new HttpProxy(this::dialInternal, port); }
 
     @Override public ServerSocket listen(int port) throws IOException {
         Netstack s = requireStack();
