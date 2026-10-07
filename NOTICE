@@ -1,0 +1,22 @@
+JTail
+Copyright (c) 2026 JTail contributors
+
+This project reimplements, in Java, protocols specified or implemented by the following works. No third-party code is
+linked at runtime. Where source text or data was ported or generated, it is listed here with its license.
+
+* Tailscale client (https://github.com/tailscale/tailscale), BSD-3-Clause, Copyright (c) Tailscale Inc & contributors.
+  The ts2021 control protocol (controlbase, controlhttp, ts2021), tailcfg wire types, DERP, disco and the netmap
+  merging semantics were ported from this source.
+* golang.org/x/net/http2/hpack, BSD-3-Clause, Copyright (c) The Go Authors. The HPACK static table and Huffman code
+  tables in src/main/java/com/simtechdata/jtail/http2/HpackTables.java were generated from it.
+* WireGuard (https://www.wireguard.com/protocol/) and wireguard-go (MIT, Copyright (c) WireGuard LLC), used as the
+  protocol specification and, in tests only, as an interoperability oracle.
+* NaCl / TweetNaCl (public domain) algorithms: Salsa20, XSalsa20, Poly1305, crypto_box.
+* Noise Protocol Framework (https://noiseprotocol.org/), public domain specification.
+* RFC 793/9293 (TCP), 5681/6582 (congestion control), 6298 (RTO), 7323 (window scaling), 7541 (HPACK),
+  9113 (HTTP/2), 5389 (STUN), 7693 (BLAKE2), 8439 (ChaCha20-Poly1305), 7748 (X25519).
+
+Test-only oracles (interop/) link against Tailscale (BSD-3-Clause) and golang.org/x/* (BSD-3-Clause) and are not part of
+the library artifact.
+
+"Tailscale" and "WireGuard" are trademarks of their respective owners. This project is not affiliated with them.
