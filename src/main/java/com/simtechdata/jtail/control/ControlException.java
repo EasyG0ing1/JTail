@@ -4,6 +4,7 @@ import java.io.IOException;
 
 /** A failure talking to the control server (HTTP-level errors carry the status). */
 public class ControlException extends IOException {
+    private static final long serialVersionUID = 1L;
     private final int status;
     public ControlException(String message, int status) { super(message); this.status = status; }
     public ControlException(String message, Throwable cause) { super(message, cause); this.status = 0; }

@@ -5,7 +5,6 @@ import com.simtechdata.jtail.crypto.NaClBox;
 import com.simtechdata.jtail.derp.DerpManager;
 import com.simtechdata.jtail.state.NodeIdentity;
 import com.simtechdata.jtail.tailcfg.Derp;
-import com.simtechdata.jtail.tailcfg.NetMap;
 import com.simtechdata.jtail.tailcfg.Node;
 import com.simtechdata.jtail.wg.WgDevice;
 import com.simtechdata.jtail.wg.WgPeer;

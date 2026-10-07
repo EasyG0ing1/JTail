@@ -3,7 +3,6 @@ package com.simtechdata.jtail.control;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.simtechdata.jtail.state.NodeIdentity;
-import com.simtechdata.jtail.tailcfg.MapResponse;
 import com.simtechdata.jtail.tailcfg.NetMap;
 import com.simtechdata.jtail.testutil.Oracles;
 import java.net.URI;
