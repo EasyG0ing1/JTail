@@ -215,7 +215,10 @@ public final class Magicsock implements AutoCloseable {
 
     private void handleDisco(byte[] d, InetSocketAddress fromUdp, int derpRegion, byte[] derpSrc) {
         MsPeer p = byDiscoKey.get(Hex.of(Disco.source(d)));
-        if (p == null || p.disco == null) return;
+        if (p == null || p.disco == null) {
+            com.simtechdata.jtail.Trace.log("magicsock", "disco message from UNKNOWN disco key " + com.simtechdata.jtail.Trace.key(Disco.source(d)) + " ignored" + (fromUdp != null ? " (from " + fromUdp + ")" : ""));
+            return;
+        }
         Disco.Message m = Disco.open(d, p.disco);
         if (m == null) { com.simtechdata.jtail.Trace.log("magicsock", "disco message failed to authenticate"); return; }
         com.simtechdata.jtail.Trace.log("magicsock", "disco " + m.getClass().getSimpleName() + (fromUdp != null ? " from " + fromUdp : " via DERP " + derpRegion));
@@ -225,7 +228,7 @@ public final class Magicsock implements AutoCloseable {
             if (fromUdp != null) learnCandidate(p, fromUdp);
         } else if (m instanceof Disco.Pong pong) {
             Object[] pending = p.pings.remove(Hex.of(pong.txId()));
-            if (pending == null) return;
+            if (pending == null) { com.simtechdata.jtail.Trace.log("magicsock", "pong with unknown transaction id ignored"); return; }
             if (fromUdp != null && pending[0] != null) {
                 long rtt = System.nanoTime() - (Long) pending[1];
                 boolean better = !p.bestValid() || fromUdp.equals(p.bestAddr) || rtt < p.bestLatencyNanos;
@@ -233,6 +236,7 @@ public final class Magicsock implements AutoCloseable {
                     p.bestAddr = fromUdp;
                     p.bestLatencyNanos = rtt;
                 }
+                if (better) com.simtechdata.jtail.Trace.log("magicsock", "DIRECT path to " + com.simtechdata.jtail.Trace.key(p.nodeKey) + " confirmed via " + fromUdp + " (rtt " + rtt / 1_000_000 + " ms)");
                 if (fromUdp.equals(p.bestAddr)) p.bestTrustUntil = System.nanoTime() + TRUST_BEST_ADDR_NANOS;
                 WgPeer wg = p.wg;
                 if (wg != null) wg.setEndpoint(fromUdp);
@@ -327,6 +331,7 @@ public final class Magicsock implements AutoCloseable {
                 if (ni.isLoopback() && !includeLoopback) continue;
                 for (InetAddress a : Collections.list(ni.getInetAddresses())) {
                     if (a.isLinkLocalAddress() || a.isAnyLocalAddress() || a.isMulticastAddress()) continue;
+                    if (isTailnetAddress(a)) continue;   // another Tailscale client on this host: not a physical path
                     if (a.isLoopbackAddress() && !includeLoopback) continue;
                     if (a instanceof Inet4Address || a instanceof Inet6Address) eps.add(new Endpoint(new InetSocketAddress(a, port), 1));
                 }
@@ -346,6 +351,13 @@ public final class Magicsock implements AutoCloseable {
 
     public List<Endpoint> endpoints() { return lastEndpoints; }
 
+    /** 100.64.0.0/10 (Tailscale's CGNAT range) or fd7a:115c:a1e0::/48 (its ULA range). */
+    static boolean isTailnetAddress(InetAddress a) {
+        byte[] b = a.getAddress();
+        if (b.length == 4) return (b[0] & 0xFF) == 100 && (b[1] & 0xC0) == 0x40;
+        return b.length == 16 && (b[0] & 0xFF) == 0xfd && b[1] == 0x7a && b[2] == 0x11 && b[3] == 0x5c && (b[4] & 0xFF) == 0xa1 && b[5] == (byte) 0xe0;
+    }
+
     /** Sends STUN binding requests to the DERP nodes in {@code map}; mappings arrive asynchronously. */
     public void probeStun(Derp.Map_ map) {
         if (map == null || !directPaths) return;
@@ -358,6 +370,7 @@ public final class Magicsock implements AutoCloseable {
                     stunPending.put(Hex.of(tx), server);
                     byte[] req = Stun.bindingRequest(tx);
                     udp.send(new DatagramPacket(req, req.length, server));
+                    com.simtechdata.jtail.Trace.log("stun", "binding request sent to " + server);
                 } catch (IOException | RuntimeException ignored) { }
             }
         }
@@ -365,8 +378,9 @@ public final class Magicsock implements AutoCloseable {
 
     private void handleStun(byte[] d) {
         InetSocketAddress server = stunPending.remove(Hex.of(Stun.txId(d)));
-        if (server == null) return;
+        if (server == null) { com.simtechdata.jtail.Trace.log("stun", "response with unknown transaction id ignored"); return; }
         InetSocketAddress mapped = Stun.parseBindingResponse(d);
+        com.simtechdata.jtail.Trace.log("stun", "response from " + server + " -> mapped address " + mapped);
         if (mapped != null && stunMapped.add(mapped)) timers.execute(this::refreshEndpoints);
     }
 
