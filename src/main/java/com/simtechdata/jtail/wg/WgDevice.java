@@ -39,6 +39,7 @@ public final class WgDevice implements AutoCloseable {
     private final Map<ByteBuffer, WgPeer> peersByKey = new ConcurrentHashMap<>();
     private final Map<Integer, Object[]> indexTable = new ConcurrentHashMap<>(); // idx -> {peer, Keypair|null}
     private volatile List<Route> routes = List.of();
+    private volatile boolean routesDirty;   // rebuilt lazily so adding N peers costs O(N log N), not O(N^2)
     private final ScheduledExecutorService timers = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "jtail-wg-timers");
         t.setDaemon(true);
@@ -106,16 +107,26 @@ public final class WgDevice implements AutoCloseable {
 
     public List<WgPeer> peers() { return new ArrayList<>(peersByKey.values()); }
 
-    private void rebuildRoutes() {
-        List<Route> rs = new ArrayList<>();
-        for (WgPeer p : peersByKey.values()) for (IpPrefix ip : p.allowedIPs) rs.add(new Route(ip, p));
-        rs.sort(Comparator.comparingInt((Route r) -> r.prefix.bits()).reversed());
-        routes = rs;
+    private void rebuildRoutes() { routesDirty = true; }
+
+    private List<Route> currentRoutes() {
+        if (routesDirty) {
+            synchronized (this) {
+                if (routesDirty) {
+                    routesDirty = false; // clear first: a concurrent change re-marks it and forces another rebuild
+                    List<Route> rs = new ArrayList<>();
+                    for (WgPeer p : peersByKey.values()) for (IpPrefix ip : p.allowedIPs) rs.add(new Route(ip, p));
+                    rs.sort(Comparator.comparingInt((Route r) -> r.prefix.bits()).reversed());
+                    routes = rs;
+                }
+            }
+        }
+        return routes;
     }
 
     /** Longest-prefix match of a destination address against peers' allowed IPs. */
     public WgPeer routeFor(byte[] ip) {
-        for (Route r : routes) if (r.prefix.contains(ip)) return r.peer;
+        for (Route r : currentRoutes()) if (r.prefix.contains(ip)) return r.peer;
         return null;
     }
 
