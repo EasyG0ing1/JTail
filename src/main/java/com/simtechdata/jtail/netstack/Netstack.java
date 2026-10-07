@@ -102,8 +102,14 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
     public void deliver(byte[] raw) {
         if (closed) return;
         IpPacket p = IpPacket.parse(raw);
-        if (p == null || !isLocal(p.dst)) return;
-        if (!inboundFilter.test(p)) return;
+        if (p == null) { com.simtechdata.jtail.Trace.log("netstack", "inbound: unparseable IP packet dropped"); return; }
+        if (!isLocal(p.dst)) { com.simtechdata.jtail.Trace.log("netstack", "inbound: packet for non-local address dropped"); return; }
+        if (!inboundFilter.test(p)) {
+            if (com.simtechdata.jtail.Trace.ON) com.simtechdata.jtail.Trace.log("netstack", "inbound packet BLOCKED by tailnet packet filter: proto " + p.protocol + " "
+                    + addr(p.src) + " -> " + addr(p.dst) + (p.protocol == IpPacket.PROTO_TCP && p.payload.length >= 4
+                    ? " port " + (((p.payload[2] & 0xFF) << 8) | (p.payload[3] & 0xFF)) : ""));
+            return;
+        }
         switch (p.protocol) {
             case IpPacket.PROTO_TCP -> handleTcp(p);
             case IpPacket.PROTO_UDP -> handleUdp(p, raw);
@@ -119,6 +125,10 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
         if (c != null) { c.onSegment(seg); return; }
         if (seg.has(TcpSegment.RST)) return;
         TcpListener l = listeners.get(seg.dstPort);
+        if (seg.has(TcpSegment.SYN) && !seg.has(TcpSegment.ACK)) {
+            com.simtechdata.jtail.Trace.log("netstack", "SYN from " + addr(p.src) + ":" + seg.srcPort + " to port " + seg.dstPort
+                    + (l != null && !l.isClosed() ? " (listener present)" : " (NO LISTENER - will be reset)"));
+        }
         if (seg.has(TcpSegment.SYN) && !seg.has(TcpSegment.ACK) && l != null && !l.isClosed()) {
             if (halfOpen() >= MAX_HALF_OPEN || l.full()) return; // shed load: the client will retry its SYN
             ConnKey k = new ConnKey(ByteBuffer.wrap(p.src), seg.srcPort, seg.dstPort);
@@ -134,6 +144,10 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
         if (seg.has(TcpSegment.ACK)) { rst.seq = seg.ack; rst.flags = TcpSegment.RST; }
         else { rst.seq = 0; rst.ack = seg.seq + seg.seqLen(); rst.flags = TcpSegment.RST | TcpSegment.ACK; }
         output(IpPacket.build(p.dst, p.src, IpPacket.PROTO_TCP, rst.build(p.dst, p.src)));
+    }
+
+    private static String addr(byte[] a) {
+        try { return java.net.InetAddress.getByAddress(a).getHostAddress(); } catch (java.net.UnknownHostException e) { return "?"; }
     }
 
     private int halfOpen() {

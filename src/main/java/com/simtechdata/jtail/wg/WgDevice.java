@@ -221,6 +221,7 @@ public final class WgDevice implements AutoCloseable {
                 byte[] mac2 = Handshake.mac(peer.cookie, msg, 132);
                 System.arraycopy(mac2, 0, msg, 132, 16);
             }
+            com.simtechdata.jtail.Trace.log("wg", "sending handshake initiation to " + com.simtechdata.jtail.Trace.key(peer.publicKey));
             cancel(peer.retryTimer);
             peer.retryTimer = timers.schedule(() -> retryHandshake(peer), timing.rekeyTimeoutNanos() + rng.nextInt(333) * 1_000_000L, TimeUnit.NANOSECONDS);
         }
@@ -286,14 +287,15 @@ public final class WgDevice implements AutoCloseable {
     }
 
     private void handleInitiation(byte[] msg, Object source) throws AEADBadTagException {
-        if (!macOk(msg, 116)) return;
-        if (!takeInitiationToken()) return;
+        com.simtechdata.jtail.Trace.log("wg", "rx handshake initiation from " + source);
+        if (!macOk(msg, 116)) { com.simtechdata.jtail.Trace.log("wg", "initiation dropped: bad mac1"); return; }
+        if (!takeInitiationToken()) { com.simtechdata.jtail.Trace.log("wg", "initiation dropped: rate limit"); return; }
         Handshake.Consumed c = Handshake.consumeInitiation(msg, privateKey, publicKey, pub -> {
             WgPeer p = peersByKey.get(ByteBuffer.wrap(pub));
             return p == null ? null : p.staticSecret();
         });
         WgPeer peer = peersByKey.get(ByteBuffer.wrap(c.peerStatic));
-        if (peer == null) return;
+        if (peer == null) { com.simtechdata.jtail.Trace.log("wg", "initiation dropped: unknown peer key"); return; }
         byte[] response;
         synchronized (peer) {
             if (compareTimestamps(c.timestamp, peer.lastTimestamp) <= 0) return; // replay
@@ -312,6 +314,7 @@ public final class WgDevice implements AutoCloseable {
             peer.endpoint = source;
             response = r.message;
         }
+        com.simtechdata.jtail.Trace.log("wg", "sending handshake response to " + com.simtechdata.jtail.Trace.key(peer.publicKey));
         output.send(peer, response);
     }
 
@@ -321,6 +324,7 @@ public final class WgDevice implements AutoCloseable {
         if (!macOk(msg, 60)) return;
         int receiver = Handshake.le32(msg, 8);
         Object[] ent = indexTable.get(receiver);
+        com.simtechdata.jtail.Trace.log("wg", "rx handshake response from " + source);
         if (ent == null) return;
         WgPeer peer = (WgPeer) ent[0];
         boolean flush;
@@ -339,6 +343,7 @@ public final class WgDevice implements AutoCloseable {
             indexTable.put(receiver, new Object[]{peer, kp});
             peer.endpoint = source;
             peer.lastHandshake = Instant.now();
+            com.simtechdata.jtail.Trace.log("wg", "handshake COMPLETE with " + com.simtechdata.jtail.Trace.key(peer.publicKey));
             flush = !peer.staged.isEmpty();
             schedulePersistent(peer);
         }
@@ -417,7 +422,8 @@ public final class WgDevice implements AutoCloseable {
         byte[] ip = IpHeader.trim(pt);
         if (ip == null) return;
         byte[] src = IpHeader.src(ip);
-        if (src == null || !allowed(peer, src)) return;
+        if (src == null || !allowed(peer, src)) { com.simtechdata.jtail.Trace.log("wg", "inner packet dropped: source not in peer's AllowedIPs"); return; }
+        com.simtechdata.jtail.Trace.log("wg", "rx IP packet " + ip.length + "B from " + com.simtechdata.jtail.Trace.key(peer.publicKey));
         onPacket.accept(peer, ip);
     }
 

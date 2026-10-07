@@ -64,7 +64,9 @@ public final class DerpManager implements AutoCloseable {
     /** Sends via {@code region}; the packet may be queued briefly while a connection is established. */
     public void send(int region, byte[] dest, byte[] packet) {
         Conn c = conn(region);
-        if (c != null) c.send(dest, packet);
+        if (c == null) { com.simtechdata.jtail.Trace.log("derp", "send dropped: region " + region + " not in DERP map"); return; }
+        com.simtechdata.jtail.Trace.log("derp", "tx " + packet.length + "B to " + com.simtechdata.jtail.Trace.key(dest) + " via region " + region);
+        c.send(dest, packet);
     }
 
     private Conn conn(int region) {
@@ -104,14 +106,19 @@ public final class DerpManager implements AutoCloseable {
                 for (Derp.Node n : r.nodes()) {
                     if (n.stunOnly()) continue;
                     try {
+                        com.simtechdata.jtail.Trace.log("derp", "connecting to region " + region + " node " + n.hostName());
                         c = DerpClient.connect(n, nodePriv, new DerpClient.Listener() {
-                            @Override public void onPacket(byte[] src, byte[] data) { receiver.onDerpPacket(region, src, data); }
+                            @Override public void onPacket(byte[] src, byte[] data) {
+                                com.simtechdata.jtail.Trace.log("derp", "rx " + data.length + "B from " + com.simtechdata.jtail.Trace.key(src) + " via region " + region);
+                                receiver.onDerpPacket(region, src, data);
+                            }
                             @Override public void onClosed(Throwable cause) { handleClosed(); }
                         });
                         break;
-                    } catch (IOException e) { last = e; }
+                    } catch (IOException e) { last = e; com.simtechdata.jtail.Trace.log("derp", "connect to " + n.hostName() + " FAILED: " + e); }
                 }
                 if (c == null) throw last != null ? last : new IOException("no usable DERP node in region " + region);
+                com.simtechdata.jtail.Trace.log("derp", "connected to region " + region);
                 if (home == region) c.notePreferred(true);
                 synchronized (this) {
                     client = c;
@@ -120,6 +127,7 @@ public final class DerpManager implements AutoCloseable {
                 }
                 flush(c);
             } catch (IOException | RuntimeException e) {
+                com.simtechdata.jtail.Trace.log("derp", "region " + region + " unavailable: " + e);
                 synchronized (this) { connecting = false; failures++; queue.clear(); }
                 scheduleReconnect();
             }
