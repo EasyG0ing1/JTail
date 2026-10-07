@@ -1,0 +1,43 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    name: Unit tests (JDK 21)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: mvn -B verify
+
+  interop:
+    name: Interop tests against Tailscale (Go oracles)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: jtail
+      - uses: actions/checkout@v4
+        with:
+          repository: tailscale/tailscale
+          path: tailscale
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tailscale/go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: jtail/pom.xml
+      - name: Build oracles
+        run: jtail/interop/build-oracle.sh "$GITHUB_WORKSPACE/tailscale" "$RUNNER_TEMP/oracles"
+      - name: Run all tests including interop
+        working-directory: jtail
+        run: mvn -B test -DargLine="-Djtail.oracle.dir=$RUNNER_TEMP/oracles"
