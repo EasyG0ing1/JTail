@@ -169,11 +169,14 @@ public final class Dial {
         if (port < 0) throw new IllegalStateException("port not set: call port(...)");
         if (payload == null) throw new IllegalStateException("payload not set: call payload(...)");
         int millis = (int) timeout.toMillis();
+        Trace.log("send", "connecting to " + host + ":" + port + " ...");
         try (Socket socket = tailnet.dial(host, port, millis)) {
+            Trace.log("send", "connected to " + host + ":" + port + ", writing " + payload.length + " bytes");
             socket.setSoTimeout(millis);
             OutputStream out = socket.getOutputStream();
             out.write(payload);
             out.flush();
         }
+        Trace.log("send", "sent and closed");
     }
 }

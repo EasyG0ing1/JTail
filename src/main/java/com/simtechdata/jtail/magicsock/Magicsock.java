@@ -152,11 +152,15 @@ public final class Magicsock implements AutoCloseable {
         MsPeer p = wg.userData() instanceof MsPeer m ? m : null;
         if (p == null) return;
         p.lastSendNanos = System.nanoTime();
+        com.simtechdata.jtail.Trace.log("magicsock", "tx WG type " + datagram[0] + " " + datagram.length + "B to " + com.simtechdata.jtail.Trace.key(p.nodeKey)
+                + (directPaths && p.bestValid() ? " direct " + p.bestAddr : " homeDerp=" + p.homeDerp));
         if (directPaths && p.bestValid()) {
             try { udp.send(new DatagramPacket(datagram, datagram.length, p.bestAddr)); return; }
             catch (IOException e) { p.bestAddr = null; }
         }
         if (p.homeDerp != 0) derp.send(p.homeDerp, p.nodeKey, datagram);
+        else com.simtechdata.jtail.Trace.log("magicsock", "NO PATH to " + com.simtechdata.jtail.Trace.key(p.nodeKey)
+                + ": peer has no home DERP region and no direct path; packet dropped");
         if (directPaths) timers.execute(() -> discover(p, false));
     }
 
@@ -197,13 +201,14 @@ public final class Magicsock implements AutoCloseable {
         if (Stun.looksLikeStun(d)) { handleStun(d); return; }
         if (!directPaths) return;                                   // DERP-only mode: ignore all direct UDP
         if (Disco.looksLikeDisco(d)) { handleDisco(d, from, 0, null); return; }
+        com.simtechdata.jtail.Trace.log("magicsock", "rx udp " + d.length + "B type " + d[0] + " from " + from);
         WgDevice dev = device;
         if (dev != null) dev.receive(d, from);
     }
 
     /** Called by the DERP layer for every relayed packet. */
     public void onDerpPacket(int region, byte[] srcNodeKey, byte[] data) {
-        if (Disco.looksLikeDisco(data)) { handleDisco(data, null, region, srcNodeKey); return; }
+        if (Disco.looksLikeDisco(data)) { com.simtechdata.jtail.Trace.log("magicsock", "rx disco via DERP region " + region); handleDisco(data, null, region, srcNodeKey); return; }
         WgDevice dev = device;
         if (dev != null) dev.receive(data, "derp:" + region);
     }
@@ -212,7 +217,8 @@ public final class Magicsock implements AutoCloseable {
         MsPeer p = byDiscoKey.get(Hex.of(Disco.source(d)));
         if (p == null || p.disco == null) return;
         Disco.Message m = Disco.open(d, p.disco);
-        if (m == null) return;
+        if (m == null) { com.simtechdata.jtail.Trace.log("magicsock", "disco message failed to authenticate"); return; }
+        com.simtechdata.jtail.Trace.log("magicsock", "disco " + m.getClass().getSimpleName() + (fromUdp != null ? " from " + fromUdp : " via DERP " + derpRegion));
         if (m instanceof Disco.Ping ping) {
             Disco.Pong pong = new Disco.Pong(ping.txId(), fromUdp != null ? fromUdp : new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
             sendDisco(p, pong, fromUdp, derpRegion != 0 ? derpRegion : p.homeDerp);
@@ -281,6 +287,7 @@ public final class Magicsock implements AutoCloseable {
 
     private void sendDisco(MsPeer p, Disco.Message m, InetSocketAddress udpDest, int derpRegion) {
         if (p.disco == null) return;
+        com.simtechdata.jtail.Trace.log("magicsock", "tx disco " + m.getClass().getSimpleName() + (udpDest != null && udpDest.getPort() != 0 ? " to " + udpDest : " via DERP " + derpRegion));
         byte[] pkt = Disco.seal(discoPub, p.disco, m);
         if (udpDest != null && udpDest.getPort() != 0) {
             try { udp.send(new DatagramPacket(pkt, pkt.length, udpDest)); } catch (IOException ignored) { }

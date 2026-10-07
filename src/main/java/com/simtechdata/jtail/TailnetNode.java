@@ -244,6 +244,8 @@ final class TailnetNode implements Tailnet {
         ensureStack(s);
         PacketFilter pf = PacketFilter.compile(s.packetFilter());
         this.filter = pf;
+        com.simtechdata.jtail.Trace.log("node", "netmap: " + s.peers().size() + " peers, " + s.packetFilter().size() + " packet-filter rules, derpMap="
+                + (s.derpMap() == null ? "none" : s.derpMap().regions().size() + " regions"));
         syncPeers(s);
         if (!homeChosen && dm != null) {
             homeChosen = true;
@@ -275,6 +277,8 @@ final class TailnetNode implements Tailnet {
             if (wp == null) { wp = dev.addPeer(n.key, allowed); changed = true; }
             else if (!wp.allowedIPs().equals(allowed)) dev.setAllowedIPs(wp, allowed);
             ms.attach(wp, n.key);
+            com.simtechdata.jtail.Trace.log("node", "peer " + n.name + " key=" + com.simtechdata.jtail.Trace.key(n.key) + " homeDerp=" + n.homeDerp + " endpoints=" + n.endpoints
+                    + " online=" + n.online + " addrs=" + n.addresses);
             InetAddress ip = firstAddress(n);
             if (ip != null) {
                 for (String nameKey : nameKeys(n, s.domain())) nm.put(nameKey, ip);
@@ -424,8 +428,10 @@ final class TailnetNode implements Tailnet {
     private TailnetDialer.Dialed dialInternal(String host, int port, int connectTimeoutMillis) throws IOException {
         Netstack s = requireStack();
         InetAddress ip = resolve(host);
+        com.simtechdata.jtail.Trace.log("node", "dial " + host + " -> " + ip.getHostAddress() + ":" + port + " (timeout " + connectTimeoutMillis + " ms)");
         if (dev.routeFor(ip.getAddress()) == null) throw new java.net.NoRouteToHostException("no route to " + host + " (" + ip.getHostAddress() + ")");
         TcpConn c = s.dialTcp(ip.getAddress(), port, connectTimeoutMillis);
+        com.simtechdata.jtail.Trace.log("node", "dial " + host + ":" + port + " ESTABLISHED");
         return new TailnetDialer.Dialed(c, new InetSocketAddress(InetAddress.getByAddress(c.localAddress()), c.localPort()),
                 new InetSocketAddress(ip, port));
     }

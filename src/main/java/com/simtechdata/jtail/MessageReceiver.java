@@ -27,14 +27,16 @@ final class MessageReceiver {
         }
         try (ServerSocket server = tailnet.listen(port)) {
             if (timeout != null) server.setSoTimeout(remainingMillis(deadline, port));
+            Trace.log("receive", "listening on tailnet port " + port + ", waiting for a connection...");
             try (Socket client = server.accept()) {
+                Trace.log("receive", "connection accepted on port " + port + " from " + client.getRemoteSocketAddress());
                 InputStream in = client.getInputStream();
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 byte[] buf = new byte[8192];
                 while (true) {
                     if (timeout != null) client.setSoTimeout(remainingMillis(deadline, port));
                     int n = in.read(buf);
-                    if (n < 0) return out.toByteArray();
+                    if (n < 0) { Trace.log("receive", "message complete: " + out.size() + " bytes on port " + port); return out.toByteArray(); }
                     if (out.size() + n > MAX_MESSAGE_BYTES) throw new IOException("message exceeds " + MAX_MESSAGE_BYTES + " bytes");
                     out.write(buf, 0, n);
                 }
