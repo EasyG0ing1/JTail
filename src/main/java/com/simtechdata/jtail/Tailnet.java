@@ -9,6 +9,10 @@ import java.util.List;
 /**
  * A live membership in a tailnet. Obtained from {@link JTail}. All traffic flows through JTail's userspace
  * WireGuard/TCP stack; no TUN device, no native code, no external tailscaled.
+ *
+ * <p>Instances are thread-safe. Sockets returned by {@link #dial} and {@link #listen} follow the usual
+ * {@code java.net} contracts (blocking streams, {@code setSoTimeout}, {@code shutdownOutput}) and are safe to use from
+ * virtual threads.
  */
 public interface Tailnet extends AutoCloseable {
     /** This node's Tailscale IPv4 address (100.x.y.z). */
