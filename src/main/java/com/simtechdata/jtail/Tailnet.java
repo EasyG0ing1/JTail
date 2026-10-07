@@ -21,6 +21,14 @@ public interface Tailnet extends AutoCloseable {
     /** All tailnet addresses of this node (IPv4 and IPv6). */
     List<InetAddress> addresses();
 
+    /**
+     * Whether this instance is currently connected to its tailnet: it has joined, has not been closed, and its session
+     * with the control server is up. It becomes {@code false} if the control connection is lost (JTail reconnects in the
+     * background, after which it returns to {@code true}) and after {@link #close()}. Existing connections to peers may
+     * keep working while the control server is briefly unreachable.
+     */
+    boolean connected();
+
     /** This node's name inside the tailnet (e.g. {@code worker-1.tail1234.ts.net}). */
     String name();
 

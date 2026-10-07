@@ -66,7 +66,7 @@ public final class JTailConfig {
         private String hostname;
         private URI controlUrl = DEFAULT_CONTROL_URL;
         private Path stateDir;
-        private boolean ephemeral;
+        private boolean ephemeral = false;   // persistent node by default
         private final List<String> tags = new ArrayList<>();
         private int udpPort;
         private java.time.Duration joinTimeout = java.time.Duration.ofSeconds(60);

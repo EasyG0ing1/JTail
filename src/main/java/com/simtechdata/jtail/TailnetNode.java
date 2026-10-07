@@ -73,6 +73,7 @@ final class TailnetNode implements Tailnet {
     private volatile boolean homeChosen;
     private volatile long homeChosenAtNanos;
     private volatile Throwable controlFailure;
+    private volatile boolean controlUp;   // true while the streaming netmap session is established
     private Thread controlThread;
 
     private TailnetNode(JTailConfig cfg) throws IOException {
@@ -215,8 +216,10 @@ final class TailnetNode implements Tailnet {
                 List<Magicsock.Endpoint> eps = ms.endpoints();
                 control.pollMap(hostinfo, eps.stream().map(e -> fmt(e.addr())).toList(), eps.stream().map(Magicsock.Endpoint::type).toList(),
                         true, (MapResponse mr) -> onMap(fresh.apply(mr)));
+                controlUp = false;
                 controlFailure = new IOException("control stream ended");
             } catch (IOException | RuntimeException e) {
+                controlUp = false;
                 controlFailure = e;
                 if (!closed.get()) LOG.log(System.Logger.Level.WARNING, "control connection lost: {0}", e.toString());
             }
@@ -230,6 +233,7 @@ final class TailnetNode implements Tailnet {
 
     private void onMap(NetMap.Snapshot s) {
         if (closed.get() || s.self() == null) return;
+        controlUp = true;
         Node me = s.self();
         if (me.expired || (me.keyExpiry != null && me.keyExpiry.isBefore(java.time.Instant.now()))) {
             LOG.log(System.Logger.Level.WARNING, "this node's key has expired; peers will refuse its traffic until it re-registers");
@@ -344,6 +348,8 @@ final class TailnetNode implements Tailnet {
         if (s == null || closed.get()) throw new IOException("tailnet is not connected");
         return s;
     }
+
+    @Override public boolean connected() { return !closed.get() && stack != null && controlUp; }
 
     @Override public InetAddress address() {
         Node self = snap.self();
@@ -461,6 +467,7 @@ final class TailnetNode implements Tailnet {
 
     @Override public void close() {
         if (!closed.compareAndSet(false, true)) return;
+        controlUp = false;
         if (cfg.ephemeral()) {
             try { control.logout(hostinfo); } catch (IOException | RuntimeException ignored) { }
         }

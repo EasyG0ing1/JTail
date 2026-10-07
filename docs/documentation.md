@@ -231,7 +231,7 @@ Tailnet net = JTail.network()
 | `hostname(String)` | The node's name. It should be unique for each instance of your program. | The machine's hostname |
 | `controlUrl(String)` | The control server URL. Only needed for a self-hosted server such as Headscale. | Tailscale's control server |
 | `stateDir(Path)` | A directory where the node identity is persisted so the node keeps its address across restarts. | *none* (new identity on every run) |
-| `ephemeral(boolean)` | If `true`, the node is removed from the tailnet automatically when it goes offline. | `false` |
+| `ephemeral(boolean)` | If `true`, the node is removed from the tailnet automatically when it goes offline. | `false` (the node persists) |
 | `tag(String)` | Requests an ACL tag such as `tag:worker`. May be called several times. The auth key must be permitted to apply it. | *none* |
 | `joinTimeout(Duration)` | Maximum time `join()` waits before failing. | 60 seconds |
 | `directPaths(boolean)` | If `false`, all traffic is relayed through DERP (see [Section 18](#18-direct-connections-and-relays)). | `true` |
@@ -265,6 +265,7 @@ A successful `join()` returns a `Tailnet`. It is the entry point for everything 
 |---|---|
 | `address()` | This node's primary (IPv4) tailnet address. |
 | `addresses()` | All of this node's tailnet addresses (IPv4 and IPv6). |
+| `connected()` | `true` while the node is joined and its session with the control server is up; `false` after `close()` or while the control connection is being re-established. |
 | `name()` | This node's fully qualified name, such as `worker-7.my-tailnet.ts.net`. |
 | `peers()` | A snapshot of the other nodes in the tailnet. |
 | `dial(host, port)` | Opens a TCP connection to another node and returns a `java.net.Socket`. |
