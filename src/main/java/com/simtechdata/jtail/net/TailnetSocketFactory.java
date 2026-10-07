@@ -13,10 +13,23 @@ import javax.net.SocketFactory;
 public final class TailnetSocketFactory extends SocketFactory {
     private final TailnetDialer dialer;
 
+    /**
+     * @param dialer opens tailnet connections; applications normally use {@link com.simtechdata.jtail.Tailnet#socketFactory()}
+     */
     public TailnetSocketFactory(TailnetDialer dialer) { this.dialer = dialer; }
 
+    /**
+     * Creates an unconnected socket; connect it with {@link Socket#connect(java.net.SocketAddress, int)}, passing host
+     * names via {@link InetSocketAddress#createUnresolved(String, int)} so they resolve inside the tailnet.
+     */
     @Override public Socket createSocket() { return new TailnetSocket(dialer); }
 
+    /**
+     * Creates a socket connected to a tailnet node by name or address.
+     *
+     * @throws java.net.UnknownHostException if the name is not in the tailnet
+     * @throws IOException                   if the connection fails
+     */
     @Override public Socket createSocket(String host, int port) throws IOException {
         Socket s = new TailnetSocket(dialer);
         s.connect(InetSocketAddress.createUnresolved(host, port));

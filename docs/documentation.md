@@ -129,6 +129,10 @@ import com.simtechdata.jtail.Tailnet;
 
 JTail has no runtime dependencies, so nothing else is added to your classpath.
 
+`mvn install` also publishes `-sources` and `-javadoc` jars next to the main jar. With them present, IntelliJ shows the
+documentation for every method in the code-completion popup and with **Ctrl+Q** (Quick Documentation). If the
+documentation does not appear, re-import the Maven project and choose **Download Sources and Documentation**.
+
 ---
 
 ## 5. Getting an auth key
