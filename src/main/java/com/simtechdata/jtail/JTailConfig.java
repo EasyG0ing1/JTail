@@ -16,6 +16,9 @@ public final class JTailConfig {
     private final Path stateDir;
     private final boolean ephemeral;
     private final List<String> advertiseTags;
+    private final int udpPort;
+    private final java.time.Duration joinTimeout;
+    private final boolean includeLoopbackEndpoints;
 
     private JTailConfig(Builder b) {
         this.authKey = b.authKey;
@@ -24,6 +27,9 @@ public final class JTailConfig {
         this.stateDir = b.stateDir;
         this.ephemeral = b.ephemeral;
         this.advertiseTags = List.copyOf(b.tags);
+        this.udpPort = b.udpPort;
+        this.joinTimeout = b.joinTimeout;
+        this.includeLoopbackEndpoints = b.includeLoopback;
     }
 
     public String authKey() { return authKey; }
@@ -33,6 +39,12 @@ public final class JTailConfig {
     public Path stateDir() { return stateDir; }
     public boolean ephemeral() { return ephemeral; }
     public List<String> advertiseTags() { return advertiseTags; }
+    /** Local UDP port for direct WireGuard/disco traffic; 0 picks a free port. */
+    public int udpPort() { return udpPort; }
+    /** How long {@link JTail#join} waits for the node to become usable. */
+    public java.time.Duration joinTimeout() { return joinTimeout; }
+    /** Advertise loopback addresses as endpoints (only useful when several nodes share one host, e.g. tests). */
+    public boolean includeLoopbackEndpoints() { return includeLoopbackEndpoints; }
 
     /** Fluent builder; finish with {@link #join()} to connect. */
     public static final class Builder {
@@ -42,6 +54,9 @@ public final class JTailConfig {
         private Path stateDir;
         private boolean ephemeral;
         private final List<String> tags = new ArrayList<>();
+        private int udpPort;
+        private java.time.Duration joinTimeout = java.time.Duration.ofSeconds(60);
+        private boolean includeLoopback;
 
         /** A reusable auth key (tskey-auth-...) created in the admin console. Required. */
         public Builder authKey(String key) { this.authKey = key; return this; }
@@ -60,6 +75,15 @@ public final class JTailConfig {
 
         /** Requests an ACL tag such as {@code tag:worker}; the auth key must be allowed to apply it. */
         public Builder tag(String tag) { this.tags.add(tag); return this; }
+
+        /** Fixes the local UDP port used for direct peer connections (default: any free port). */
+        public Builder udpPort(int port) { this.udpPort = port; return this; }
+
+        /** Maximum time {@code join()} blocks while registering and waiting for the first network map. */
+        public Builder joinTimeout(java.time.Duration d) { this.joinTimeout = d; return this; }
+
+        /** Also advertise 127.0.0.1-style endpoints; for tests where several nodes run on one machine. */
+        public Builder includeLoopbackEndpoints(boolean v) { this.includeLoopback = v; return this; }
 
         public JTailConfig build() {
             Objects.requireNonNull(authKey, "authKey is required");

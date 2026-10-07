@@ -26,6 +26,18 @@ public interface Tailnet extends AutoCloseable {
     /** Accepts TCP connections arriving on this node's tailnet address at {@code port}. */
     ServerSocket listen(int port) throws IOException;
 
+    /** Round-trip time in milliseconds of an ICMP echo to {@code host}; throws on timeout. */
+    long ping(String host, int timeoutMillis) throws IOException;
+
+    /** Opens a UDP socket on this node's tailnet address ({@code port} 0 picks a free one). */
+    com.simtechdata.jtail.netstack.UdpSocket openUdp(int port) throws IOException;
+
+    /** Resolves a peer name, short hostname, or IP literal to its tailnet address (MagicDNS semantics). */
+    InetAddress resolve(String host) throws IOException;
+
+    /** True if traffic to {@code host} currently flows over a direct UDP path rather than a DERP relay. */
+    boolean isDirect(String host);
+
     /** Leaves the tailnet and releases all resources. Ephemeral nodes are removed from the tailnet by the server. */
     @Override
     void close();
