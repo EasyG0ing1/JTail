@@ -93,6 +93,7 @@ final class TailnetNode implements Tailnet {
             if (s != null) s.deliver(pkt);
         });
         ms.bind(dev);
+        ms.setDirectPaths(cfg.directPaths());
         ms.setEndpointListener(eps -> requestLiteUpdate());
     }
 
@@ -135,7 +136,7 @@ final class TailnetNode implements Tailnet {
 
         initDataPlane();
         ms.start();
-        ms.refreshEndpoints();
+        if (cfg.directPaths()) ms.refreshEndpoints();   // DERP-only nodes advertise no UDP endpoints
         pushUpdateNow();                       // publishes our disco key and endpoints before streaming
 
         controlThread = new Thread(this::controlLoop, "jtail-control");
