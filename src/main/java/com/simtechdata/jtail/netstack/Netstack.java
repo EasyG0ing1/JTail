@@ -31,6 +31,7 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
     private final PacketSink sink;
     private final int mtu;
     private volatile Predicate<IpPacket> inboundFilter = p -> true;
+    private volatile java.util.function.Consumer<IpPacket> outboundObserver = p -> { };
     private final ScheduledThreadPoolExecutor timers;
 
     private record ConnKey(ByteBuffer remoteIp, int remotePort, int localPort) {}
@@ -56,6 +57,9 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
     /** Sets an ingress filter (the tailnet ACL packet filter); packets rejected by it are silently dropped. */
     public void setInboundFilter(Predicate<IpPacket> f) { this.inboundFilter = f; }
 
+    /** Observes every outbound IP packet before it is handed to the sink (used for stateful filtering). */
+    public void setOutboundObserver(java.util.function.Consumer<IpPacket> o) { this.outboundObserver = o; }
+
     public List<byte[]> localAddresses() { return localAddrs; }
 
     boolean isLocal(byte[] ip) {
@@ -72,7 +76,12 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
 
     // ---- TcpConn.Host ----
 
-    @Override public void output(byte[] ipPacket) { if (!closed) sink.send(ipPacket); }
+    @Override public void output(byte[] ipPacket) {
+        if (closed) return;
+        IpPacket parsed = IpPacket.parse(ipPacket);
+        if (parsed != null) outboundObserver.accept(parsed);
+        sink.send(ipPacket);
+    }
     @Override public java.util.concurrent.ScheduledExecutorService timers() { return timers; }
 
     @Override public void connectionClosed(TcpConn c) {

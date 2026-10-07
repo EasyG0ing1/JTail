@@ -235,6 +235,11 @@ public final class TcpConn {
         synchronized (lock) { abortLocked(new SocketException("connection aborted"), true); }
     }
 
+    public byte[] remoteAddress() { return remoteIp.clone(); }
+    public int remotePort() { return remotePort; }
+    public byte[] localAddress() { return localIp.clone(); }
+    public int localPort() { return localPort; }
+
     public boolean isClosed() { synchronized (lock) { return state == State.CLOSED; } }
     public boolean isInputShutdown() { synchronized (lock) { return readShutdown; } }
     public boolean isOutputShutdown() { synchronized (lock) { return finQueued; } }

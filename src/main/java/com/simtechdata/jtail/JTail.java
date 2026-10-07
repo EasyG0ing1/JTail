@@ -25,6 +25,6 @@ public final class JTail {
 
     /** Joins using an explicit config. */
     public static Tailnet join(JTailConfig config) {
-        throw new JTailException("joining is not implemented yet: control client, WireGuard and netstack are in progress");
+        return TailnetNode.join(config);
     }
 }

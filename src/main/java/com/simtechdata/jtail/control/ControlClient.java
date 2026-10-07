@@ -197,6 +197,16 @@ public final class ControlClient implements AutoCloseable {
      */
     public RegisterResult register(String authKey, Hostinfo hostinfo, boolean ephemeral, byte[] oldNodeKey)
             throws IOException {
+        return registerWithExpiry(authKey, hostinfo, ephemeral, oldNodeKey, "0001-01-01T00:00:00Z");
+    }
+
+    /** Asks the control server to expire this node's key now, removing an ephemeral node from the tailnet. */
+    public void logout(Hostinfo hostinfo) throws IOException {
+        registerWithExpiry(null, hostinfo, false, null, "1970-01-01T00:02:03Z"); // same sentinel as the Go client
+    }
+
+    private RegisterResult registerWithExpiry(String authKey, Hostinfo hostinfo, boolean ephemeral, byte[] oldNodeKey,
+                                              String expiry) throws IOException {
         Map<String, Object> req = new LinkedHashMap<>();
         req.put("Version", CAPABILITY_VERSION);
         req.put("NodeKey", Keys.encode(Keys.NODE, identity.nodePublic()));
@@ -207,7 +217,7 @@ public final class ControlClient implements AutoCloseable {
             auth.put("AuthKey", authKey);
             req.put("Auth", auth);
         }
-        req.put("Expiry", "0001-01-01T00:00:00Z");
+        req.put("Expiry", expiry);
         req.put("Followup", "");
         req.put("Hostinfo", hostinfo.toJson());
         if (ephemeral) req.put("Ephemeral", true);
