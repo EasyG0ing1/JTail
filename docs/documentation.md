@@ -74,7 +74,7 @@ are not affected.
 | **IP address** | The numeric address of a node. Tailnet IPv4 addresses are in the `100.64.0.0/10` range. |
 | **Port** | A number assigned to a specific service on the network. |
 | **TCP** | Transmission Control Protocol. The main protocol used on the internet. |
-| **UDP** | User Datagram Protocol: A faster, simpler protocol. UDP is a better protocol for broadcasting packets especially to multiple clients at the same time. |
+| **UDP** | User Datagram Protocol: a simpler, lower-overhead protocol that sends independent messages (datagrams) without establishing a connection. Delivery and ordering are not guaranteed, which makes it a good fit for latency-sensitive or loss-tolerant traffic. |
 | **Socket** | Java's abstraction for a network connection, with an input stream and an output stream. |
 | **DERP relay** | A relay server operated on the internet that forwards encrypted traffic between two nodes that cannot reach each other directly. |
 | **Direct connection** | A connection between two nodes that does not pass through a relay. It has lower latency. |
