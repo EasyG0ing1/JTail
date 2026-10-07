@@ -47,6 +47,16 @@ public interface Tailnet extends AutoCloseable {
     /** True if traffic to {@code host} currently flows over a direct UDP path rather than a DERP relay. */
     boolean isDirect(String host);
 
+    /** A {@link javax.net.SocketFactory} for libraries that open their own connections (JDBC, HTTP clients, ...). */
+    javax.net.SocketFactory socketFactory();
+
+    /**
+     * Starts a local HTTP proxy on 127.0.0.1 (CONNECT and absolute-URI requests) that forwards through the tailnet,
+     * so proxy-aware clients like {@code java.net.http.HttpClient} can reach tailnet hosts. {@code port} 0 picks a
+     * free port; read it back from {@link com.simtechdata.jtail.net.HttpProxy#port()}. Close it when done.
+     */
+    com.simtechdata.jtail.net.HttpProxy startHttpProxy(int port) throws IOException;
+
     /** Leaves the tailnet and releases all resources. Ephemeral nodes are removed from the tailnet by the server. */
     @Override
     void close();

@@ -55,6 +55,21 @@ mvn install            # unit tests + (skipped) interop tests; produces target/J
 2. Pass it to `JTail.network().authKey(...)`. Self-hosted? Add `.controlUrl("https://headscale.example.com")`.
 3. `join()` blocks until the node is registered and usable (default timeout 60 s, `JTailException` on failure).
 
+Using existing libraries with the tailnet:
+
+```java
+// JDK HttpClient via the built-in local proxy
+try (HttpProxy proxy = net.startHttpProxy(0)) {
+    HttpClient client = HttpClient.newBuilder()
+            .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", proxy.port()))).build();
+    String body = client.send(HttpRequest.newBuilder(URI.create("http://internal-api:8080/status")).build(),
+            HttpResponse.BodyHandlers.ofString()).body();
+}
+
+// anything that takes a SocketFactory (e.g. PostgreSQL JDBC: socketFactory=... or a custom wrapper)
+Socket s = net.socketFactory().createSocket("db-server", 5432);
+```
+
 See [`examples/`](examples) for runnable programs.
 
 ## The API
@@ -66,6 +81,8 @@ See [`examples/`](examples) for runnable programs.
 | `Tailnet.listen(port)` | A `java.net.ServerSocket` accepting connections that arrive over the tailnet. |
 | `Tailnet.openUdp(port)` | UDP socket on the tailnet address. |
 | `Tailnet.ping(host, timeoutMs)` | ICMP echo; returns RTT in ms. |
+| `Tailnet.socketFactory()` | A `javax.net.SocketFactory` for libraries that open their own connections (JDBC drivers, Apache HttpClient, OkHttp, JavaMail, ...). |
+| `Tailnet.startHttpProxy(port)` | Local HTTP proxy on 127.0.0.1 (CONNECT + absolute-URI) that forwards through the tailnet, so `java.net.http.HttpClient` and any proxy-aware tool can reach tailnet hosts. |
 | `Tailnet.peers()` / `address()` / `addresses()` / `name()` | Netmap view of the tailnet and this node. |
 | `Tailnet.resolve(host)` / `isDirect(host)` | Name resolution and path diagnostics (direct UDP vs. DERP relay). |
 | `Tailnet.close()` | Drains pending output, leaves the tailnet (ephemeral nodes are logged out immediately). |
@@ -114,8 +131,11 @@ built against a Tailscale checkout and used **only as test oracles**; the librar
 | WireGuard (initiator **and** responder) | Tailscale's `wireguard-go` fork over real UDP |
 | DERP client | Tailscale's `derpserver` over TLS; relay reconnect mid-TCP-connection |
 | Disco messages | byte-for-byte against Go's `disco` package; STUN against RFC 5769 |
-| TCP/IP stack | loss + reordering + zero-window simulation; IPv4 and IPv6 |
+| TCP/IP stack | loss + reordering + zero-window + keepalive simulation, a fully synchronous (re-entrant) link; IPv4 and IPv6 |
 | **Whole system** | a JTail node and a genuine Tailscale (`tsnet`) client on one tailnet: TCP both directions (IPv4+IPv6), 4 MB bulk transfers with SHA-256 integrity, UDP, ICMP, MagicDNS name dial |
+
+Also covered by tests: restart persistence, interactive login, DERP-only mode and relay/control reconnects, WireGuard
+rekeying, a 400-connection soak (no leaked connections), a 600-peer tailnet (joins in ~1.5 s), parser fuzzing.
 
 Run everything (needs Go and a checkout of tailscale/tailscale):
 
