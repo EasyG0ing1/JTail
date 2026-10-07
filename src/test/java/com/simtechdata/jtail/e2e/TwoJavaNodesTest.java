@@ -53,6 +53,7 @@ class TwoJavaNodesTest {
                 }
                 assertTrue(b.ping("node-a", 10_000) >= 0);
                 assertTrue(b.peers().stream().anyMatch(p -> p.name().startsWith("node-a")));
+                assertTrue(b.peers().stream().filter(p -> p.name().startsWith("node-a")).allMatch(com.simtechdata.jtail.Peer::connected));
                 ex.shutdownNow();
             }
         }

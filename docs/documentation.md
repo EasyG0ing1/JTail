@@ -532,6 +532,7 @@ for (Peer p : net.peers()) {
 | `hostname()` | The hostname the node reported. |
 | `addresses()` | The node's tailnet addresses. |
 | `online()` | Whether the control server currently considers the node connected. |
+| `connected()` | Same answer as `online()`, named to match `Tailnet.connected()`. It is a snapshot from when you called `peers()`; call `peers()` again for a fresh value. For a data-path check use `ping`. |
 | `tags()` | The node's ACL tags, such as `tag:server`. |
 
 `peers()` returns the latest known state and is updated in the background as nodes join and leave.
