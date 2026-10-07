@@ -45,6 +45,16 @@ class MessagingTest {
                     a.dial().to(b.address().getHostAddress()).port(9303).payload("").send();
                     assertEquals("", empty.get(30, TimeUnit.SECONDS));
 
+                    // messages sent while the receiver is between waitFor calls are queued, not refused
+                    Future<String> first = ex.submit(() -> a.waitForString(9305, Duration.ofSeconds(30)));
+                    Thread.sleep(300);
+                    b.dial().to("msg-a").port(9305).timeout(Duration.ofSeconds(10)).payload("first").send();
+                    assertEquals("first", first.get(30, TimeUnit.SECONDS));
+                    b.dial().to("msg-a").port(9305).timeout(Duration.ofSeconds(10)).payload("second").send();
+                    b.dial().to("msg-a").port(9305).timeout(Duration.ofSeconds(10)).payload("third").send();
+                    assertEquals("second", a.waitForString(9305, Duration.ofSeconds(10)));
+                    assertEquals("third", a.waitForString(9305, Duration.ofSeconds(10)));
+
                     // nothing arrives: the wait times out instead of hanging
                     long t0 = System.nanoTime();
                     assertThrows(SocketTimeoutException.class, () -> a.waitForString(9304, Duration.ofMillis(800)));
