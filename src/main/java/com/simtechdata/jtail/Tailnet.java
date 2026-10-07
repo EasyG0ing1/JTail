@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.time.Duration;
 import java.util.List;
 import javax.net.SocketFactory;
 
@@ -125,6 +126,86 @@ public interface Tailnet extends AutoCloseable {
      * @throws IOException                     for any other I/O failure
      */
     Socket dial(String host, int port, int connectTimeoutMillis) throws IOException;
+
+    /**
+     * Starts a one-shot "send a message" request: connect, write a payload, close.
+     *
+     * <pre>{@code
+     * net.dial().to("database").port(7000).timeout(Duration.ofSeconds(5)).payload("hello").send();
+     * }</pre>
+     *
+     * @return a new, empty request; configure it and finish with {@link Dial#send()}
+     * @see Dial
+     */
+    default Dial dial() { return new Dial(this); }
+
+    /**
+     * Listens on a port, accepts one connection, and returns everything the sender transmits until it closes the
+     * connection. Waits indefinitely. The matching sender is {@link #dial()}{@code .send()}.
+     *
+     * <p>Nothing listens on the port before this call or after it returns, so start waiting before the sender
+     * connects. The first connection the tailnet's access rules allow is accepted, from any node. A message may be at
+     * most 64 MiB.
+     *
+     * @param port the port to listen on, 1 to 65535
+     * @return the bytes received (empty if the sender connected and sent nothing)
+     * @throws java.net.BindException   if the port is already in use
+     * @throws IllegalArgumentException if the port is out of range
+     * @throws IOException              if the node is not connected, the connection fails, or the message is too large
+     * @see #waitForByteArray(int, Duration)
+     */
+    default byte[] waitForByteArray(int port) throws IOException {
+        return MessageReceiver.receive(this, port, null);
+    }
+
+    /**
+     * As {@link #waitForByteArray(int)}, but gives up after a timeout. The timeout covers the whole operation: waiting
+     * for a connection and receiving all of the data.
+     *
+     * @param port    the port to listen on, 1 to 65535
+     * @param timeout the maximum total time to wait; must be positive
+     * @return the bytes received
+     * @throws java.net.SocketTimeoutException if the message has not been completely received in time
+     * @throws java.net.BindException          if the port is already in use
+     * @throws IllegalArgumentException        if the port is out of range or the timeout is not positive
+     * @throws IOException                     if the node is not connected, the connection fails, or the message is too
+     *                                         large
+     */
+    default byte[] waitForByteArray(int port, Duration timeout) throws IOException {
+        return MessageReceiver.receive(this, port, java.util.Objects.requireNonNull(timeout, "timeout"));
+    }
+
+    /**
+     * Listens on a port, accepts one connection, and returns everything the sender transmits, decoded as UTF-8. Waits
+     * indefinitely. See {@link #waitForByteArray(int)} for details and limits.
+     *
+     * @param port the port to listen on, 1 to 65535
+     * @return the received text
+     * @throws java.net.BindException   if the port is already in use
+     * @throws IllegalArgumentException if the port is out of range
+     * @throws IOException              if the node is not connected, the connection fails, or the message is too large
+     * @see #waitForString(int, Duration)
+     */
+    default String waitForString(int port) throws IOException {
+        return new String(waitForByteArray(port), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /**
+     * As {@link #waitForString(int)}, but gives up after a timeout covering both waiting for a connection and
+     * receiving the data.
+     *
+     * @param port    the port to listen on, 1 to 65535
+     * @param timeout the maximum total time to wait; must be positive
+     * @return the received text, decoded as UTF-8
+     * @throws java.net.SocketTimeoutException if the message has not been completely received in time
+     * @throws java.net.BindException          if the port is already in use
+     * @throws IllegalArgumentException        if the port is out of range or the timeout is not positive
+     * @throws IOException                     if the node is not connected, the connection fails, or the message is too
+     *                                         large
+     */
+    default String waitForString(int port, Duration timeout) throws IOException {
+        return new String(waitForByteArray(port, timeout), java.nio.charset.StandardCharsets.UTF_8);
+    }
 
     /**
      * Starts listening for TCP connections arriving over the tailnet on this node's tailnet addresses.
