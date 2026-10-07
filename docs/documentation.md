@@ -17,6 +17,7 @@ exceptions, try-with-resources) but no networking background. Networking terms a
 7. [Configuration (the builder)](#7-configuration-the-builder)
 8. [The `Tailnet` API](#8-the-tailnet-api)
 9. [TCP connections: `dial` and `listen`](#9-tcp-connections-dial-and-listen)
+   - [Sending a single message: `dial()` and `waitFor...`](#98-sending-a-single-message-dial-and-waitfor)
 10. [Names and addresses](#10-names-and-addresses)
 11. [Peers](#11-peers)
 12. [Ping](#12-ping)
@@ -275,6 +276,8 @@ A successful `join()` returns a `Tailnet`. It is the entry point for everything 
 | `dial(host, port)` | Opens a TCP connection to another node and returns a `java.net.Socket`. |
 | `dial(host, port, timeoutMillis)` | Same, with an explicit connect timeout. |
 | `listen(port)` | Accepts TCP connections from other nodes and returns a `java.net.ServerSocket`. |
+| `dial()` | Starts a fluent one-shot request: `to(...)`, `port(...)`, `payload(...)`, then `send()` (see [Section 9.8](#98-sending-a-single-message-dial-and-waitfor)). |
+| `waitForString(port[, timeout])` / `waitForByteArray(port[, timeout])` | Receives one message sent with `dial()...send()`. |
 | `ping(host, timeoutMillis)` | Sends an ICMP echo request and returns the round-trip time in milliseconds. |
 | `openUdp(port)` | Opens a UDP socket on the tailnet address. |
 | `resolve(host)` | Resolves a name to an `InetAddress`. |
@@ -416,6 +419,65 @@ SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
 SSLSocket tls = (SSLSocket) factory.createSocket(raw, "web-server", 443, true);
 tls.startHandshake();
 ```
+
+### 9.8 Sending a single message: `dial()` and `waitFor...`
+
+For the common case of "send one message to another node", you do not need to manage a socket yourself. `net.dial()`
+(with no arguments) starts a fluent request. Its last call, `send()`, connects, writes the payload and closes the
+connection.
+
+```java
+net.dial()
+   .to("database")                       // a peer name or an IP address
+   .port(7000)
+   .timeout(Duration.ofSeconds(5))       // optional, default 30 seconds
+   .payload("hello")                     // a String (UTF-8) or a byte[]
+   .send();                              // connect, write, close
+```
+
+`to(...)` also accepts a `Peer` from `net.peers()`; JTail then uses the peer's IPv4 address.
+
+```java
+Peer db = net.peers().get(0);
+net.dial().to(db).port(7000).payload(new byte[] {1, 2, 3}).send();
+```
+
+The receiving node collects the message with one of these methods. Each one listens on the port, accepts **one**
+connection, reads until the sender closes it, and returns the data:
+
+| Method | Returns | Waits |
+|---|---|---|
+| `waitForString(int port)` | `String` (UTF-8) | forever |
+| `waitForString(int port, Duration timeout)` | `String` (UTF-8) | up to `timeout` |
+| `waitForByteArray(int port)` | `byte[]` | forever |
+| `waitForByteArray(int port, Duration timeout)` | `byte[]` | up to `timeout` |
+
+```java
+String message = net.waitForString(7000, Duration.ofSeconds(30));
+```
+
+Things to know:
+
+- **Start the receiver first.** `send()` fails with a `SocketException` ("connection refused") if nothing is listening
+  on the port at that moment. Likewise the port is only open while a `waitFor...` call is running.
+- **The timeout covers the whole call**: waiting for the connection plus receiving the data. On expiry a
+  `SocketTimeoutException` is thrown.
+- **`Dial` is immutable.** Every setter returns a new object, so you can keep a partly configured request and reuse it
+  (also from several threads):
+
+  ```java
+  Dial toDb = net.dial().to("database").port(7000);
+  toDb.payload("first").send();
+  toDb.payload("second").send();
+  ```
+- **Missing settings fail fast.** Calling `send()` without `to(...)`, `port(...)` or `payload(...)` throws an
+  `IllegalStateException` that names the missing setting.
+- **A message is everything up to the close.** There is no length prefix, so this is for single messages. For a
+  conversation (request and reply, or many messages on one connection), use `dial(host, port)` and `listen(port)`
+  from the earlier sections.
+- **Size limit.** `waitFor...` rejects messages larger than 64 MiB with an `IOException`.
+- **Who may send.** `waitFor...` accepts the first connection that your tailnet's access rules allow, from any node.
+  If you need to know or restrict the sender, use `listen(port)` and check `getInetAddress()` on the accepted socket.
 
 ---
 
