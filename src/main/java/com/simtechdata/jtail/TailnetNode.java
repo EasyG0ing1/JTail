@@ -379,11 +379,13 @@ final class TailnetNode implements Tailnet {
         return !h.isEmpty();
     }
 
-    @Override public Socket dial(String host, int port) throws IOException {
+    @Override public Socket dial(String host, int port) throws IOException { return dial(host, port, 30_000); }
+
+    @Override public Socket dial(String host, int port, int connectTimeoutMillis) throws IOException {
         Netstack s = requireStack();
         InetAddress ip = resolve(host);
         if (dev.routeFor(ip.getAddress()) == null) throw new java.net.NoRouteToHostException("no route to " + host + " (" + ip.getHostAddress() + ")");
-        TcpConn c = s.dialTcp(ip.getAddress(), port, 30_000);
+        TcpConn c = s.dialTcp(ip.getAddress(), port, connectTimeoutMillis);
         return new TailnetSocket(c, new InetSocketAddress(InetAddress.getByAddress(c.localAddress()), c.localPort()),
                 new InetSocketAddress(ip, port));
     }

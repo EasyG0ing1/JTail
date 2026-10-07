@@ -26,6 +26,9 @@ public interface Tailnet extends AutoCloseable {
     /** Opens a TCP connection to {@code host} (a peer name, short hostname, or tailnet IP) on {@code port}. */
     Socket dial(String host, int port) throws IOException;
 
+    /** As {@link #dial(String, int)} with an explicit connect timeout in milliseconds. */
+    Socket dial(String host, int port, int connectTimeoutMillis) throws IOException;
+
     /** Accepts TCP connections arriving on this node's tailnet address at {@code port}. */
     ServerSocket listen(int port) throws IOException;
 
