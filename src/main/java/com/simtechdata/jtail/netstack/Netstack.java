@@ -120,7 +120,8 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
             if (halfOpen() >= MAX_HALF_OPEN || l.full()) return; // shed load: the client will retry its SYN
             ConnKey k = new ConnKey(ByteBuffer.wrap(p.src), seg.srcPort, seg.dstPort);
             TcpConn nc = TcpConn.passive(this, p.dst, seg.dstPort, p.src, seg.srcPort, mssFor(p.src), seg);
-            if (conns.putIfAbsent(k, nc) != null) nc.abort();
+            if (conns.putIfAbsent(k, nc) != null) { nc.abort(); return; }
+            nc.startPassive();
             return;
         }
         // no such connection: answer with RST (RFC 9293 3.10.7.1)
@@ -217,6 +218,7 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
             if (conns.putIfAbsent(k, c) == null) break;
             c.abort();
         }
+        c.startActive();
         c.awaitEstablished(timeoutMs);
         return c;
     }

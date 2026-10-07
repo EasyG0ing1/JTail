@@ -306,4 +306,24 @@ class NetstackTest {
         IOException e = assertThrows(IOException.class, () -> c.read(new byte[1], 0, 1, 10_000));
         assertTrue(e instanceof SocketTimeoutException && e.getMessage().contains("keepalive"), String.valueOf(e));
     }
+
+    @Test @Timeout(30)
+    void handshakeRepliesThatArriveBeforeTheCallReturnsAreNotLost() throws Exception {
+        // A fully synchronous link delivers the SYN-ACK (and ACK) re-entrantly, on the very stack frame that sent the
+        // SYN. The connection must already be registered by then or the reply would be answered with a RST.
+        Netstack[] pair = new Netstack[2];
+        pair[0] = new Netstack(List.of(IP_A), p -> pair[1].deliver(p.clone()), 1280);
+        pair[1] = new Netstack(List.of(IP_B), p -> pair[0].deliver(p.clone()), 1280);
+        a = pair[0];
+        b = pair[1];
+        TcpListener l = b.listenTcp(7010);
+        TcpConn c = a.dialTcp(IP_B, 7010, 5000);
+        TcpConn s = l.accept(5000);
+        c.write("sync".getBytes(), 0, 4);
+        byte[] r = new byte[4];
+        assertEquals(4, s.read(r, 0, 4, 3000));
+        assertEquals("sync", new String(r));
+        c.close();
+        s.close();
+    }
 }
