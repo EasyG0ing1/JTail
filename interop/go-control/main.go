@@ -136,6 +136,16 @@ func main() {
 		switch f[0] {
 		case "quit":
 			return
+		case "addfake":
+			n := 1
+			if len(f) == 2 {
+				fmt.Sscanf(f[1], "%d", &n)
+			}
+			for i := 0; i < n; i++ {
+				ctrl.AddFakeNode()
+			}
+			fmt.Printf("ADDED_FAKE %d\n", n)
+			os.Stdout.Sync()
 		case "dropderp":
 			fmt.Printf("DROPPED_DERP %d\n", dln.dropAll())
 			os.Stdout.Sync()

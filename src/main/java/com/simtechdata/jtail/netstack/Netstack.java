@@ -62,6 +62,9 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
 
     public List<byte[]> localAddresses() { return localAddrs; }
 
+    /** Number of TCP connections currently tracked (including those lingering in TIME_WAIT); for diagnostics. */
+    public int connectionCount() { return conns.size(); }
+
     boolean isLocal(byte[] ip) {
         for (byte[] a : localAddrs) if (Arrays.equals(a, ip)) return true;
         return false;

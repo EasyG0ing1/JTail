@@ -41,6 +41,9 @@ public interface Tailnet extends AutoCloseable {
     /** Resolves a peer name, short hostname, or IP literal to its tailnet address (MagicDNS semantics). */
     InetAddress resolve(String host) throws IOException;
 
+    /** Number of TCP connections currently tracked by the userspace stack (diagnostics and leak checks). */
+    int connectionCount();
+
     /** True if traffic to {@code host} currently flows over a direct UDP path rather than a DERP relay. */
     boolean isDirect(String host);
 

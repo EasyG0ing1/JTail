@@ -424,6 +424,11 @@ final class TailnetNode implements Tailnet {
 
     @Override public UdpSocket openUdp(int port) throws IOException { return requireStack().bindUdp(port); }
 
+    @Override public int connectionCount() {
+        Netstack s = stack;
+        return s == null ? 0 : s.connectionCount();
+    }
+
     @Override public boolean isDirect(String host) {
         try {
             InetAddress ip = resolve(host);
