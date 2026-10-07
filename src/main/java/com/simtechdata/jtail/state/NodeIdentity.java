@@ -17,7 +17,9 @@ import java.util.Properties;
  * fresh ones registers a brand-new node.
  */
 public final class NodeIdentity {
-    private final byte[] machinePriv, nodePriv, discoPriv, nlPublic;
+    private final byte[] machinePriv, discoPriv, nlPublic;
+    private volatile byte[] nodePriv;
+    private volatile Path file;       // where this identity persists, or null for in-memory identities
 
     private NodeIdentity(byte[] machinePriv, byte[] nodePriv, byte[] discoPriv, byte[] nlPublic) {
         this.machinePriv = machinePriv;
@@ -45,6 +47,20 @@ public final class NodeIdentity {
 
     public byte[] machinePrivate() { return machinePriv.clone(); }
     public byte[] nodePrivate() { return nodePriv.clone(); }
+
+    /**
+     * Replaces the node key (the WireGuard identity) with a fresh one and persists it. Used when the control server
+     * reports the old key as expired. Returns the previous public key, to be sent as {@code OldNodeKey}.
+     */
+    public synchronized byte[] rotateNodeKey() {
+        byte[] old = nodePublic();
+        nodePriv = X25519.generatePrivate();
+        Path f = file;
+        if (f != null) {
+            try { save(f); } catch (IOException e) { throw new JTailException("cannot persist rotated node key to " + f, e); }
+        }
+        return old;
+    }
     public byte[] discoPrivate() { return discoPriv.clone(); }
     public byte[] machinePublic() { return X25519.publicKey(machinePriv); }
     public byte[] nodePublic() { return X25519.publicKey(nodePriv); }
@@ -63,10 +79,12 @@ public final class NodeIdentity {
                         KeyText.decode(KeyText.MACHINE_PRIVATE, p.getProperty("node")),
                         KeyText.decode(KeyText.MACHINE_PRIVATE, p.getProperty("disco")),
                         nl == null ? newNlPublic() : KeyText.decode(KeyText.NODE_PUBLIC, nl));
+                loaded.file = file;
                 if (nl == null) loaded.save(file); // upgrade older identity files in place
                 return loaded;
             }
             NodeIdentity id = generate();
+            id.file = file;
             id.save(file);
             return id;
         } catch (IOException | RuntimeException e) {

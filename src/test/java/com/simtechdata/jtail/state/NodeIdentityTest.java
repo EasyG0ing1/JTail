@@ -38,4 +38,25 @@ class NodeIdentityTest {
         assertNotNull(c.hostname());
         assertEquals(java.util.List.of("tag:worker"), c.advertiseTags());
     }
+
+    @Test
+    void plaintextControlUrlIsRefusedUnlessLoopbackOrExplicit() {
+        assertThrows(IllegalArgumentException.class,
+                () -> JTail.network().authKey("k").controlUrl("http://control.example.com").build());
+        assertDoesNotThrow(() -> JTail.network().authKey("k").controlUrl("http://127.0.0.1:8080").build());
+        assertDoesNotThrow(() -> JTail.network().authKey("k").controlUrl("http://10.0.0.5").allowInsecureControl(true).build());
+        assertThrows(IllegalArgumentException.class, () -> JTail.network().authKey("k").controlUrl("ftp://x").build());
+    }
+
+    @Test
+    void rotateNodeKeyPersistsAndReportsOldKey(@TempDir Path dir) {
+        Path f = dir.resolve("id.properties");
+        NodeIdentity a = NodeIdentity.loadOrCreate(f);
+        byte[] before = a.nodePublic();
+        byte[] old = a.rotateNodeKey();
+        assertArrayEquals(before, old);
+        assertFalse(java.util.Arrays.equals(before, a.nodePublic()));
+        assertArrayEquals(a.nodePublic(), NodeIdentity.loadOrCreate(f).nodePublic(), "rotated key must survive reload");
+        assertArrayEquals(a.machinePublic(), NodeIdentity.loadOrCreate(f).machinePublic(), "machine key must not change");
+    }
 }

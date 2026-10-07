@@ -51,6 +51,16 @@ class GoTsnetInteropTest {
                     assertEquals("go:from-java", new String(buf, 0, n));
                 }
 
+                // --- IPv6: the same echo over the node's fd7a:... address ---
+                String goIp6 = up.split(" ")[2];
+                try (Socket s = java.dial(goIp6, 7000)) {
+                    s.getOutputStream().write("v6-from-java".getBytes());
+                    s.getOutputStream().flush();
+                    byte[] buf = new byte[64];
+                    int n = s.getInputStream().read(buf);
+                    assertEquals("go:v6-from-java", new String(buf, 0, n));
+                }
+
                 // --- Go dials Java (TCP echo) ---
                 ExecutorService ex = Executors.newCachedThreadPool();
                 try (ServerSocket ss = java.listen(7001)) {
@@ -66,6 +76,23 @@ class GoTsnetInteropTest {
                     go.send("dial " + java.address().getHostAddress() + ":7001 from-go");
                     assertEquals("DIAL_REPLY java:from-go", go.expect("DIAL_", 30_000));
                     assertEquals("from-go", got.get(10, TimeUnit.SECONDS));
+                }
+
+                // --- Go dials Java over IPv6 ---
+                String javaIp6 = java.addresses().stream().filter(a -> a instanceof java.net.Inet6Address).findFirst().orElseThrow().getHostAddress();
+                try (ServerSocket ss = java.listen(7005)) {
+                    Future<String> got6 = ex.submit(() -> {
+                        try (Socket s = ss.accept()) {
+                            byte[] buf = new byte[64];
+                            int n = s.getInputStream().read(buf);
+                            s.getOutputStream().write(("java6:" + new String(buf, 0, n)).getBytes());
+                            s.getOutputStream().flush();
+                            return s.getInetAddress().getHostAddress();
+                        }
+                    });
+                    go.send("dial [" + javaIp6 + "]:7005 from-go-v6");
+                    assertEquals("DIAL_REPLY java6:from-go-v6", go.expect("DIAL_", 30_000));
+                    assertTrue(got6.get(10, TimeUnit.SECONDS).contains(":"), "peer address should be IPv6");
                 }
 
                 // --- bulk Java -> Go with integrity check (Go computes sha256 of what it received) ---

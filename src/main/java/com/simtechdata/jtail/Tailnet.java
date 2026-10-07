@@ -14,6 +14,9 @@ public interface Tailnet extends AutoCloseable {
     /** This node's Tailscale IPv4 address (100.x.y.z). */
     InetAddress address();
 
+    /** All tailnet addresses of this node (IPv4 and IPv6). */
+    List<InetAddress> addresses();
+
     /** This node's name inside the tailnet (e.g. {@code worker-1.tail1234.ts.net}). */
     String name();
 
