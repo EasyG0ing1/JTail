@@ -10,6 +10,7 @@ public final class Hostinfo {
     public String hostname;
     public List<String> requestTags = new ArrayList<>();
     public String app = "jtail";
+    public int preferredDerp;       // our home DERP region; control tells peers about it
 
     public Hostinfo(String hostname) { this.hostname = hostname; }
 
@@ -23,6 +24,11 @@ public final class Hostinfo {
         m.put("GoArch", goarch());
         m.put("Machine", System.getProperty("os.arch", ""));
         if (!requestTags.isEmpty()) m.put("RequestTags", requestTags);
+        if (preferredDerp != 0) {
+            Map<String, Object> ni = new LinkedHashMap<>();
+            ni.put("PreferredDERP", preferredDerp);
+            m.put("NetInfo", ni);
+        }
         m.put("Userspace", true);
         m.put("UserspaceRouter", true);
         return m;
