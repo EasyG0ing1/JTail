@@ -37,20 +37,12 @@ networking to follow along. Every new word is explained the first time it shows 
 
 ## 1. What is JTail?
 
-Imagine you have a few computers in different places: one at home, one in the cloud, one at school. Normally they
-cannot talk to each other easily, because each one sits behind its own router and firewall.
-
-**Tailscale** is a service that fixes this. It builds a **private network** that connects all your computers, like they
-were all plugged into the same switch, no matter where they really are. Everything sent over it is **encrypted**
-(scrambled so nobody else can read it).
-
-Usually, to be part of a Tailscale network, you install a separate program on the computer. **JTail is different.**
-JTail is a Java library, so your Java program can join the private network **all by itself**:
+JTail is a **native** java library that gives you the ability to write a Tailscale network into your java program.
 
 - No Tailscale app to install.
 - No Go, Rust or C code.
 - No administrator (root) rights needed.
-- No other libraries to download. JTail needs nothing except Java 21.
+- No other libraries to download. JTail needs nothing except Java 21+
 
 You write a few lines of code, and your program becomes a member of the private network.
 
@@ -74,9 +66,9 @@ You write a few lines of code, and your program becomes a member of the private 
 | **Auth key** | A secret password-like text that lets a program join your tailnet without anybody clicking anything. It looks like `tskey-auth-abc123...`. |
 | **Hostname** | The name of a node, like `worker-1` or `database`. |
 | **IP address** | A number that identifies a computer on a network, like `100.64.0.5`. Tailnet addresses start with `100.`. |
-| **Port** | A numbered "door" on a computer. A web server uses door 80 or 443, a database might use 5432. |
-| **TCP** | A way of sending data that makes sure everything arrives, in order. Most programs use it (websites, databases, chat). |
-| **UDP** | A faster, simpler way of sending small messages. Some can get lost. Used for games, video calls and similar. |
+| **Port** | A number assigned to a specific service on the network. |
+| **TCP** | Transmission Control Protocol. The main protocol used on the internet. |
+| **UDP** | User Datagram Protocol: A faster, simpler protocol. UDP is a better protocol for broadcasting packets especially to multiple clients at the same time. |
 | **Socket** | Java's name for "a connection you can read from and write to." |
 | **DERP relay** | A helper server on the internet that passes your messages along when two computers can't reach each other directly. Think of it like a post office. |
 | **Direct connection** | When two nodes talk straight to each other without a relay. Faster! |
