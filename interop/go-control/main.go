@@ -21,6 +21,7 @@ import (
 	"tailscale.com/derp/derpserver"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tstest/integration/testcontrol"
+	"tailscale.com/types/dnstype"
 	"tailscale.com/types/key"
 	"tailscale.com/types/logger"
 )
@@ -29,6 +30,9 @@ func main() {
 	authKey := flag.String("authkey", "", "required auth key (empty = any)")
 	domain := flag.String("magicdns", "jtail.test", "MagicDNS domain")
 	verbose := flag.Bool("v", false, "verbose control logs")
+	requireAuth := flag.Bool("requireauth", false, "force the interactive AuthURL login flow")
+	extra := flag.String("extrarecord", "", "comma list of name=ip MagicDNS extra records")
+	dnsRoute := flag.String("dnsroute", "", "comma list of suffix=resolverIP split-DNS routes")
 	flag.Parse()
 
 	logf := logger.Discard
@@ -64,10 +68,25 @@ func main() {
 		log.Fatal(err)
 	}
 	base := "http://" + cln.Addr().String()
+	dnsCfg := &tailcfg.DNSConfig{Proxied: true, Domains: []string{*domain}}
+	for _, kv := range strings.Split(*extra, ",") {
+		if p := strings.SplitN(kv, "=", 2); len(p) == 2 {
+			dnsCfg.ExtraRecords = append(dnsCfg.ExtraRecords, tailcfg.DNSRecord{Name: p[0], Value: p[1]})
+		}
+	}
+	for _, kv := range strings.Split(*dnsRoute, ",") {
+		if p := strings.SplitN(kv, "=", 2); len(p) == 2 {
+			if dnsCfg.Routes == nil {
+				dnsCfg.Routes = map[string][]*dnstype.Resolver{}
+			}
+			dnsCfg.Routes[p[0]] = []*dnstype.Resolver{{Addr: p[1]}}
+		}
+	}
 	ctrl := &testcontrol.Server{
+		DNSConfig:       dnsCfg,
+		RequireAuth:     *requireAuth,
 		Logf:            logf,
 		DERPMap:         derpMap,
-		RequireAuth:     false,
 		RequireAuthKey:  *authKey,
 		MagicDNSDomain:  *domain,
 		ExplicitBaseURL: base,
@@ -79,9 +98,18 @@ func main() {
 	os.Stdout.Sync()
 	in := bufio.NewScanner(os.Stdin)
 	for in.Scan() {
-		switch strings.TrimSpace(in.Text()) {
+		f := strings.Fields(in.Text())
+		if len(f) == 0 {
+			continue
+		}
+		switch f[0] {
 		case "quit":
 			return
+		case "completeauth":
+			if len(f) == 2 {
+				fmt.Printf("COMPLETEAUTH %v\n", ctrl.CompleteAuth(f[1]))
+				os.Stdout.Sync()
+			}
 		}
 	}
 	select {} // stdin closed: keep serving until killed

@@ -66,6 +66,9 @@ final class TailnetNode implements Tailnet {
     private volatile PacketFilter filter = PacketFilter.compile(List.of()); // deny until the netmap says otherwise
     private volatile NetMap.Snapshot snap = new NetMap.Snapshot(null, List.of(), null, null, "", List.of(), List.of());
     private volatile Map<String, InetAddress> names = Map.of();
+    private final com.simtechdata.jtail.dns.DnsResolver dns = new com.simtechdata.jtail.dns.DnsResolver(
+            port -> { try { return requireStack().bindUdp(port); } catch (IOException e) { throw new java.io.UncheckedIOException(e); } },
+            ip -> dev != null && dev.routeFor(ip) != null);
     private volatile boolean homeChosen;
     private volatile long homeChosenAtNanos;
     private volatile Throwable controlFailure;
@@ -118,8 +121,14 @@ final class TailnetNode implements Tailnet {
         }
         if (!r.error().isEmpty()) throw new JTailException("control server refused registration: " + r.error());
         if (!r.authUrl().isEmpty()) {
-            throw new JTailException("the auth key was not accepted for unattended registration; interactive login is "
-                    + "required at " + r.authUrl() + " (use a reusable pre-authorized auth key)");
+            if (cfg.loginHandler() == null) {
+                throw new JTailException("interactive login is required at " + r.authUrl()
+                        + " (supply a reusable auth key, or an onLoginRequired handler)");
+            }
+            cfg.loginHandler().accept(r.authUrl());
+            r = control.registerFollowup(hostinfo, cfg.ephemeral(), r.authUrl()); // blocks until the user finishes login
+            if (!r.error().isEmpty()) throw new JTailException("control server refused registration: " + r.error());
+            if (!r.authUrl().isEmpty()) throw new JTailException("login was not completed (still pending at " + r.authUrl() + ")");
         }
         if (!r.machineAuthorized()) LOG.log(System.Logger.Level.WARNING,
                 "node registered but is awaiting administrator approval in the tailnet; peers will not be visible yet");
@@ -247,7 +256,7 @@ final class TailnetNode implements Tailnet {
         for (Node n : s.peers()) {
             if (n.key == null || n.expired) continue;
             seen.add(Hex.of(n.key));
-            List<IpPrefix> allowed = n.addresses;
+            List<IpPrefix> allowed = cfg.acceptRoutes() ? n.allowedIPs : n.addresses;
             WgPeer wp = dev.peer(n.key);
             if (wp == null) { wp = dev.addPeer(n.key, allowed); changed = true; }
             else if (!wp.allowedIPs().equals(allowed)) dev.setAllowedIPs(wp, allowed);
@@ -369,7 +378,17 @@ final class TailnetNode implements Tailnet {
             String domain = snap.domain();
             if (domain != null && !domain.isEmpty() && !h.contains(".")) ip = names.get(h + "." + domain);
         }
-        if (ip == null) throw new UnknownHostException(host + ": no such node in this tailnet");
+        if (ip == null) {
+            try {
+                List<InetAddress> found = dns.resolve(h, snap.dns() == null ? com.simtechdata.jtail.tailcfg.DnsConfig.EMPTY : snap.dns());
+                if (!found.isEmpty()) return found.get(0);
+            } catch (UnknownHostException ignored) {
+                // fall through to the unified error below
+            } catch (java.io.UncheckedIOException e) {
+                throw e.getCause();
+            }
+            throw new UnknownHostException(host + ": no such node in this tailnet and not found in tailnet DNS");
+        }
         return ip;
     }
 
