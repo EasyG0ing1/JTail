@@ -156,7 +156,7 @@ public final class Magicsock implements AutoCloseable {
                 + (directPaths && p.bestValid() ? " direct " + p.bestAddr : " homeDerp=" + p.homeDerp));
         if (directPaths && p.bestValid()) {
             try { udp.send(new DatagramPacket(datagram, datagram.length, p.bestAddr)); return; }
-            catch (IOException e) { p.bestAddr = null; }
+            catch (IOException e) { udpSendFailed(p.bestAddr, e); p.bestAddr = null; }
         }
         if (p.homeDerp != 0) derp.send(p.homeDerp, p.nodeKey, datagram);
         else com.simtechdata.jtail.Trace.log("magicsock", "NO PATH to " + com.simtechdata.jtail.Trace.key(p.nodeKey)
@@ -294,7 +294,7 @@ public final class Magicsock implements AutoCloseable {
         com.simtechdata.jtail.Trace.log("magicsock", "tx disco " + m.getClass().getSimpleName() + (udpDest != null && udpDest.getPort() != 0 ? " to " + udpDest : " via DERP " + derpRegion));
         byte[] pkt = Disco.seal(discoPub, p.disco, m);
         if (udpDest != null && udpDest.getPort() != 0) {
-            try { udp.send(new DatagramPacket(pkt, pkt.length, udpDest)); } catch (IOException ignored) { }
+            try { udp.send(new DatagramPacket(pkt, pkt.length, udpDest)); } catch (IOException e) { udpSendFailed(udpDest, e); }
         } else if (derpRegion != 0) {
             derp.send(derpRegion, p.nodeKey, pkt);
         }
@@ -351,6 +351,17 @@ public final class Magicsock implements AutoCloseable {
 
     public List<Endpoint> endpoints() { return lastEndpoints; }
 
+    private final Set<String> udpErrorsLogged = ConcurrentHashMap.newKeySet();
+
+    /** A UDP send failed (e.g. the OS refused a local-network destination). Logged once per distinct error. */
+    private void udpSendFailed(InetSocketAddress dest, IOException e) {
+        com.simtechdata.jtail.Trace.log("magicsock", "UDP send to " + dest + " FAILED: " + e);
+        if (udpErrorsLogged.add(String.valueOf(e.getMessage()))) {
+            System.getLogger("com.simtechdata.jtail").log(System.Logger.Level.WARNING,
+                    "direct UDP send to {0} failed: {1} (further identical errors are not logged; direct paths to such peers will not work)", dest, e.toString());
+        }
+    }
+
     /** 100.64.0.0/10 (Tailscale's CGNAT range) or fd7a:115c:a1e0::/48 (its ULA range). */
     static boolean isTailnetAddress(InetAddress a) {
         byte[] b = a.getAddress();
@@ -371,7 +382,7 @@ public final class Magicsock implements AutoCloseable {
                     byte[] req = Stun.bindingRequest(tx);
                     udp.send(new DatagramPacket(req, req.length, server));
                     com.simtechdata.jtail.Trace.log("stun", "binding request sent to " + server);
-                } catch (IOException | RuntimeException ignored) { }
+                } catch (IOException | RuntimeException e) { com.simtechdata.jtail.Trace.log("stun", "request to " + n.hostName() + " failed: " + e); }
             }
         }
     }
