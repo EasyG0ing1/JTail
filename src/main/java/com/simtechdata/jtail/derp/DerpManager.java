@@ -128,6 +128,7 @@ public final class DerpManager implements AutoCloseable {
                 flush(c);
             } catch (IOException | RuntimeException e) {
                 com.simtechdata.jtail.Trace.log("derp", "region " + region + " unavailable: " + e);
+                System.getLogger("com.simtechdata.jtail").log(System.Logger.Level.WARNING, "DERP relay region {0} connection failed: {1}", region, e.toString());
                 synchronized (this) { connecting = false; failures++; queue.clear(); }
                 scheduleReconnect();
             }
