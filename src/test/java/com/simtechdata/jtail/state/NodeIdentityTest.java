@@ -59,4 +59,10 @@ class NodeIdentityTest {
         assertArrayEquals(a.nodePublic(), NodeIdentity.loadOrCreate(f).nodePublic(), "rotated key must survive reload");
         assertArrayEquals(a.machinePublic(), NodeIdentity.loadOrCreate(f).machinePublic(), "machine key must not change");
     }
+
+    @Test
+    void ephemeralIsOffByDefault() {
+        assertFalse(JTail.network().authKey("k").build().ephemeral());
+        assertTrue(JTail.network().authKey("k").ephemeral(true).build().ephemeral());
+    }
 }

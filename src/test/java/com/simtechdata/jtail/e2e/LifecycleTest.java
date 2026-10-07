@@ -42,6 +42,24 @@ class LifecycleTest {
     }
 
     @Test @Timeout(60)
+    void connectedReflectsMembershipAndControlSessionState() throws Exception {
+        try (Oracles.Running o = Oracles.start("go-control", "-authkey", "tskey-auth-life")) {
+            String url = o.expect("BASEURL ", 20_000).substring("BASEURL ".length());
+            Tailnet n = b(url, "connected-check").join();
+            assertTrue(n.connected(), "a freshly joined node is connected");
+            o.send("dropctl");                       // sever the control session
+            long dl = System.nanoTime() + 15_000_000_000L;
+            while (n.connected() && System.nanoTime() < dl) Thread.sleep(50);
+            assertFalse(n.connected(), "connected() must turn false when the control session is lost");
+            dl = System.nanoTime() + 30_000_000_000L;
+            while (!n.connected() && System.nanoTime() < dl) Thread.sleep(100);
+            assertTrue(n.connected(), "connected() must recover once the control session is re-established");
+            n.close();
+            assertFalse(n.connected(), "a closed tailnet is not connected");
+        }
+    }
+
+    @Test @Timeout(60)
     void wrongAuthKeyFailsFastWithClearError() throws Exception {
         try (Oracles.Running o = Oracles.start("go-control", "-authkey", "tskey-auth-life")) {
             String url = o.expect("BASEURL ", 20_000).substring("BASEURL ".length());
