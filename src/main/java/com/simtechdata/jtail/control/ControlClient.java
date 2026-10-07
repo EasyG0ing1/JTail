@@ -237,6 +237,12 @@ public final class ControlClient implements AutoCloseable {
      */
     public void pollMap(Hostinfo hostinfo, List<String> endpoints, boolean stream, Consumer<MapResponse> onMap)
             throws IOException {
+        pollMap(hostinfo, endpoints, endpoints.stream().map(e -> 1).toList(), stream, onMap);
+    }
+
+    /** As above, with an explicit tailcfg.EndpointType per endpoint (1 = local, 2 = STUN). */
+    public void pollMap(Hostinfo hostinfo, List<String> endpoints, List<Integer> endpointTypes, boolean stream,
+                        Consumer<MapResponse> onMap) throws IOException {
         Map<String, Object> req = new LinkedHashMap<>();
         req.put("Version", CAPABILITY_VERSION);
         req.put("KeepAlive", true);
@@ -244,7 +250,7 @@ public final class ControlClient implements AutoCloseable {
         req.put("DiscoKey", Keys.encode(Keys.DISCO, identity.discoPublic()));
         if (!endpoints.isEmpty()) {
             req.put("Endpoints", endpoints);
-            req.put("EndpointTypes", endpoints.stream().map(e -> 1).toList());
+            req.put("EndpointTypes", endpointTypes);
         }
         if (stream) req.put("Stream", true);
         req.put("Hostinfo", hostinfo.toJson());
@@ -275,6 +281,10 @@ public final class ControlClient implements AutoCloseable {
      */
     public void sendUpdate(Hostinfo hostinfo, List<String> endpoints) throws IOException {
         pollMap(hostinfo, endpoints, false, r -> { });
+    }
+
+    public void sendUpdate(Hostinfo hostinfo, List<String> endpoints, List<Integer> endpointTypes) throws IOException {
+        pollMap(hostinfo, endpoints, endpointTypes, false, r -> { });
     }
 
     @Override public synchronized void close() {
