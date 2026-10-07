@@ -38,6 +38,8 @@ jobs:
           cache-dependency-path: jtail/pom.xml
       - name: Build oracles
         run: jtail/interop/build-oracle.sh "$GITHUB_WORKSPACE/tailscale" "$RUNNER_TEMP/oracles"
+      - name: Build Headscale (independent control server used as an interop oracle)
+        run: GOBIN="$RUNNER_TEMP/headscale" go install github.com/juanfont/headscale/cmd/headscale@v0.29.4
       - name: Run all tests including interop
         working-directory: jtail
-        run: mvn -B test -DargLine="-Djtail.oracle.dir=$RUNNER_TEMP/oracles"
+        run: mvn -B test -DargLine="-Djtail.oracle.dir=$RUNNER_TEMP/oracles -Djtail.headscale.bin=$RUNNER_TEMP/headscale/headscale"

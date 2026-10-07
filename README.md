@@ -128,6 +128,7 @@ built against a Tailscale checkout and used **only as test oracles**; the librar
 | ts2021 Noise control handshake + framing | Tailscale's `controlbase` server; also the **live production control plane** (handshake + HTTP/2 session) |
 | HPACK / HTTP/2 client | RFC 7541 vectors; Go `net/http` h2c server (large bodies, flow control, streaming) |
 | `/machine/register`, `/machine/map`, netmap deltas, MagicDNS records, split DNS, interactive login | Tailscale's own `testcontrol` server |
+| **Headscale** control server (independent implementation, v0.29.4) | pre-auth-key registration, netmap with a real Go client, MagicDNS names, TCP both directions, ping |
 | WireGuard (initiator **and** responder) | Tailscale's `wireguard-go` fork over real UDP |
 | DERP client | Tailscale's `derpserver` over TLS; relay reconnect mid-TCP-connection |
 | Disco messages | byte-for-byte against Go's `disco` package; STUN against RFC 5769 |
@@ -141,7 +142,8 @@ Run everything (needs Go and a checkout of tailscale/tailscale):
 
 ```
 interop/build-oracle.sh /path/to/tailscale /tmp/oracles
-mvn test -DargLine="-Djtail.oracle.dir=/tmp/oracles"
+GOBIN=/tmp/headscale go install github.com/juanfont/headscale/cmd/headscale@v0.29.4     # optional
+mvn test -DargLine="-Djtail.oracle.dir=/tmp/oracles -Djtail.headscale.bin=/tmp/headscale/headscale"
 ```
 
 Without `jtail.oracle.dir` the interop tests are skipped and the pure-Java unit tests run.
