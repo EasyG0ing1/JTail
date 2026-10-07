@@ -26,6 +26,13 @@ public final class HttpProxy implements AutoCloseable {
     private final ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
     private volatile boolean closed;
 
+    /**
+     * Starts the proxy. Applications normally call {@link com.simtechdata.jtail.Tailnet#startHttpProxy(int)} instead.
+     *
+     * @param dialer opens the tailnet connections the proxy forwards to
+     * @param port   the loopback port to listen on, or {@code 0} for any free port
+     * @throws IOException if the port cannot be bound
+     */
     public HttpProxy(TailnetDialer dialer, int port) throws IOException {
         this.dialer = dialer;
         this.server = new ServerSocket(port, 50, InetAddress.getLoopbackAddress());
@@ -34,7 +41,7 @@ public final class HttpProxy implements AutoCloseable {
         t.start();
     }
 
-    /** The loopback port the proxy listens on. */
+    /** @return the loopback port the proxy listens on (useful when started with port {@code 0}) */
     public int port() { return server.getLocalPort(); }
 
     private void acceptLoop() {
@@ -144,6 +151,7 @@ public final class HttpProxy implements AutoCloseable {
         return b.toString(StandardCharsets.ISO_8859_1);
     }
 
+    /** Stops the proxy and closes its listening socket. Connections already being relayed end with it. */
     @Override public void close() {
         closed = true;
         try { server.close(); } catch (IOException ignored) { }

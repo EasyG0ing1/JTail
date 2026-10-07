@@ -44,8 +44,27 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <!-- Attach a -sources.jar so IDEs can show the Javadoc and source of the dependency. -->
+                        <id>attach-sources</id>
+                        <goals><goal>jar-no-fork</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>3.12.0</version>
+                <executions>
+                    <execution>
+                        <!-- Attach a -javadoc.jar so IDEs (IntelliJ) show documentation for the dependency. -->
+                        <id>attach-javadocs</id>
+                        <goals><goal>jar</goal></goals>
+                    </execution>
+                </executions>
                 <configuration>
                     <!-- Only com.simtechdata.jtail is public API; implementation packages are not fully documented. -->
                     <doclint>all,-missing</doclint>
