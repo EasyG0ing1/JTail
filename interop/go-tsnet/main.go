@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/dns/dnsmessage"
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
@@ -181,6 +182,46 @@ func main() {
 					pc.WriteTo(append([]byte("go-udp:"), buf[:n]...), addr)
 				}
 			}()
+		case "dnsserve":
+			pc, err := s.ListenPacket("udp", net.JoinHostPort(v4, f[1]))
+			if err != nil {
+				out("DNSSERVE_ERR %v", err)
+				continue
+			}
+			out("DNSSERVE_LISTENING %s", f[1])
+			answer := netip.MustParseAddr(v4)
+			go func() {
+				buf := make([]byte, 1500)
+				for {
+					n, addr, err := pc.ReadFrom(buf)
+					if err != nil {
+						return
+					}
+					var p dnsmessage.Parser
+					h, err := p.Start(buf[:n])
+					if err != nil {
+						continue
+					}
+					q, err := p.Question()
+					if err != nil {
+						continue
+					}
+					h.Response = true
+					h.RecursionAvailable = true
+					b := dnsmessage.NewBuilder(nil, h)
+					b.EnableCompression()
+					b.StartQuestions()
+					b.Question(q)
+					b.StartAnswers()
+					if q.Type == dnsmessage.TypeA {
+						a4 := answer.As4()
+						b.AResource(dnsmessage.ResourceHeader{Name: q.Name, Class: dnsmessage.ClassINET, TTL: 30}, dnsmessage.AResource{A: a4})
+					}
+					resp, _ := b.Finish()
+					pc.WriteTo(resp, addr)
+					out("DNS_QUERY %s %v", q.Name.String(), q.Type)
+				}
+			}()
 		case "ping":
 			go func(h string) {
 				ip, err := netip.ParseAddr(h)
@@ -208,6 +249,7 @@ func main() {
 		}
 	}
 	_ = ipn.State(0)
+	_ = net.IP{}
 	select {}
 }
 

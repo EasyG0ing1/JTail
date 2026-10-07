@@ -20,6 +20,8 @@ public final class JTailConfig {
     private final java.time.Duration joinTimeout;
     private final boolean includeLoopbackEndpoints;
     private final boolean allowInsecureControl;
+    private final boolean acceptRoutes;
+    private final java.util.function.Consumer<String> loginHandler;
 
     private JTailConfig(Builder b) {
         this.authKey = b.authKey;
@@ -32,6 +34,8 @@ public final class JTailConfig {
         this.joinTimeout = b.joinTimeout;
         this.includeLoopbackEndpoints = b.includeLoopback;
         this.allowInsecureControl = b.allowInsecureControl;
+        this.acceptRoutes = b.acceptRoutes;
+        this.loginHandler = b.loginHandler;
     }
 
     public String authKey() { return authKey; }
@@ -48,6 +52,10 @@ public final class JTailConfig {
     /** Advertise loopback addresses as endpoints (only useful when several nodes share one host, e.g. tests). */
     public boolean includeLoopbackEndpoints() { return includeLoopbackEndpoints; }
     public boolean allowInsecureControl() { return allowInsecureControl; }
+    /** Whether to route traffic for subnets advertised by peers (subnet routers) in addition to tailnet addresses. */
+    public boolean acceptRoutes() { return acceptRoutes; }
+    /** Called with a URL the user must open to authorize this node, when no auth key was supplied; may be null. */
+    public java.util.function.Consumer<String> loginHandler() { return loginHandler; }
 
     /** Fluent builder; finish with {@link #join()} to connect. */
     public static final class Builder {
@@ -61,6 +69,8 @@ public final class JTailConfig {
         private java.time.Duration joinTimeout = java.time.Duration.ofSeconds(60);
         private boolean includeLoopback;
         private boolean allowInsecureControl;
+        private boolean acceptRoutes;
+        private java.util.function.Consumer<String> loginHandler;
 
         /** A reusable auth key (tskey-auth-...) created in the admin console. Required. */
         public Builder authKey(String key) { this.authKey = key; return this; }
@@ -96,9 +106,20 @@ public final class JTailConfig {
          */
         public Builder allowInsecureControl(boolean v) { this.allowInsecureControl = v; return this; }
 
+        /** Routes traffic for subnets that peers advertise (and the tailnet admin approved), like {@code --accept-routes}. */
+        public Builder acceptRoutes(boolean v) { this.acceptRoutes = v; return this; }
+
+        /**
+         * Enables interactive login for deployments without an auth key: the handler receives a URL to open in a
+         * browser, and {@code join()} blocks until the login completes. Use {@link #authKey} for unattended nodes.
+         */
+        public Builder onLoginRequired(java.util.function.Consumer<String> handler) { this.loginHandler = handler; return this; }
+
         public JTailConfig build() {
-            Objects.requireNonNull(authKey, "authKey is required");
-            if (authKey.isBlank()) throw new IllegalArgumentException("authKey must not be blank");
+            if (authKey == null && loginHandler == null) {
+                throw new NullPointerException("authKey is required (or provide onLoginRequired for interactive login)");
+            }
+            if (authKey != null && authKey.isBlank()) throw new IllegalArgumentException("authKey must not be blank");
             if (hostname == null) hostname = defaultHostname();
             checkControlUrl();
             return new JTailConfig(this);

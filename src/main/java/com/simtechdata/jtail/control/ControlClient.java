@@ -167,16 +167,24 @@ public final class ControlClient implements AutoCloseable {
      */
     public RegisterResult register(String authKey, Hostinfo hostinfo, boolean ephemeral, byte[] oldNodeKey)
             throws IOException {
-        return registerWithExpiry(authKey, hostinfo, ephemeral, oldNodeKey, "0001-01-01T00:00:00Z");
+        return registerWithExpiry(authKey, hostinfo, ephemeral, oldNodeKey, "0001-01-01T00:00:00Z", "");
+    }
+
+    /**
+     * Continues an interactive login: blocks until the user has completed the login at {@code followupUrl} (the
+     * AuthURL returned by an earlier {@link #register}), then returns the final registration result.
+     */
+    public RegisterResult registerFollowup(Hostinfo hostinfo, boolean ephemeral, String followupUrl) throws IOException {
+        return registerWithExpiry(null, hostinfo, ephemeral, null, "0001-01-01T00:00:00Z", followupUrl);
     }
 
     /** Asks the control server to expire this node's key now, removing an ephemeral node from the tailnet. */
     public void logout(Hostinfo hostinfo) throws IOException {
-        registerWithExpiry(null, hostinfo, false, null, "1970-01-01T00:02:03Z"); // same sentinel as the Go client
+        registerWithExpiry(null, hostinfo, false, null, "1970-01-01T00:02:03Z", ""); // same sentinel as the Go client
     }
 
     private RegisterResult registerWithExpiry(String authKey, Hostinfo hostinfo, boolean ephemeral, byte[] oldNodeKey,
-                                              String expiry) throws IOException {
+                                              String expiry, String followup) throws IOException {
         Map<String, Object> req = new LinkedHashMap<>();
         req.put("Version", CAPABILITY_VERSION);
         req.put("NodeKey", Keys.encode(Keys.NODE, identity.nodePublic()));
@@ -188,7 +196,7 @@ public final class ControlClient implements AutoCloseable {
             req.put("Auth", auth);
         }
         req.put("Expiry", expiry);
-        req.put("Followup", "");
+        req.put("Followup", followup);
         req.put("Hostinfo", hostinfo.toJson());
         if (ephemeral) req.put("Ephemeral", true);
         req.put("NodeKeySignature", null);
