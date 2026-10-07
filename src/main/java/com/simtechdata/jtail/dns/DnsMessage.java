@@ -1,7 +1,6 @@
 package com.simtechdata.jtail.dns;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;

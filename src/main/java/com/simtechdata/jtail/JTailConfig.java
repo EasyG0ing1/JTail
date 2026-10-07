@@ -4,7 +4,6 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /** Immutable settings for joining a tailnet. Build with {@link JTail#network()}. */
 public final class JTailConfig {

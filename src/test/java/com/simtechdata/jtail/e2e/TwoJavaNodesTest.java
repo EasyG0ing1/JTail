@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.simtechdata.jtail.JTail;
 import com.simtechdata.jtail.Tailnet;
 import com.simtechdata.jtail.testutil.Oracles;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;

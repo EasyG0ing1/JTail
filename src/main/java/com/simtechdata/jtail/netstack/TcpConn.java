@@ -310,6 +310,7 @@ public final class TcpConn {
 
     /** Unchecked carrier so wait helpers stay simple; converted to InterruptedIOException at API boundaries. */
     private static final class InterruptedIOExceptionWrapper extends java.io.InterruptedIOException {
+        private static final long serialVersionUID = 1L;
         InterruptedIOExceptionWrapper(InterruptedException e) { super("interrupted"); initCause(e); }
     }
 

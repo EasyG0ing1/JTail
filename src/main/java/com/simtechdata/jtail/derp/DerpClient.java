@@ -11,7 +11,6 @@ import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
@@ -28,7 +27,7 @@ import javax.net.ssl.X509TrustManager;
 
 /**
  * A client for one DERP relay server (Tailscale's TCP/HTTPS relay protocol, used when peers cannot reach each other
- * directly). One instance owns one connection; {@link DerpConnection} adds reconnection on top.
+ * directly). One instance owns one connection; {@link DerpManager} adds reconnection on top.
  */
 public final class DerpClient implements AutoCloseable {
     static final int FRAME_SERVER_KEY = 0x01, FRAME_CLIENT_INFO = 0x02, FRAME_SERVER_INFO = 0x03,
