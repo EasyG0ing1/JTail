@@ -24,6 +24,7 @@ public final class NoiseConn implements AutoCloseable {
     private final byte[] handshakeHash;
     private final byte[] peer;
     private final int version;
+    private final Object txLock = new Object(), rxLock = new Object(); // independent: reads block while writes proceed
     private long txNonce, rxNonce;
 
     NoiseConn(InputStream in, OutputStream out, ChaCha20Poly1305 tx, ChaCha20Poly1305 rx,
@@ -48,7 +49,11 @@ public final class NoiseConn implements AutoCloseable {
     }
 
     /** Encrypts and sends data, splitting into records as needed. */
-    public synchronized void write(byte[] data, int off, int len) throws IOException {
+    public void write(byte[] data, int off, int len) throws IOException {
+        synchronized (txLock) { writeLocked(data, off, len); }
+    }
+
+    private void writeLocked(byte[] data, int off, int len) throws IOException {
         while (len > 0) {
             int n = Math.min(len, MAX_PLAINTEXT);
             if (txNonce == -1L) throw new IOException("cipher exhausted");
@@ -68,7 +73,11 @@ public final class NoiseConn implements AutoCloseable {
     public void write(byte[] data) throws IOException { write(data, 0, data.length); }
 
     /** Reads and decrypts exactly one record; returns its plaintext, or null on clean EOF at a record boundary. */
-    public synchronized byte[] readRecord() throws IOException {
+    public byte[] readRecord() throws IOException {
+        synchronized (rxLock) { return readRecordLocked(); }
+    }
+
+    private byte[] readRecordLocked() throws IOException {
         byte[] hdr = new byte[HEADER];
         int first = in.read();
         if (first < 0) return null;

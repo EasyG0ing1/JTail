@@ -17,16 +17,30 @@ import java.util.Properties;
  * fresh ones registers a brand-new node.
  */
 public final class NodeIdentity {
-    private final byte[] machinePriv, nodePriv, discoPriv;
+    private final byte[] machinePriv, nodePriv, discoPriv, nlPublic;
 
-    private NodeIdentity(byte[] machinePriv, byte[] nodePriv, byte[] discoPriv) {
+    private NodeIdentity(byte[] machinePriv, byte[] nodePriv, byte[] discoPriv, byte[] nlPublic) {
         this.machinePriv = machinePriv;
         this.nodePriv = nodePriv;
         this.discoPriv = discoPriv;
+        this.nlPublic = nlPublic;
+    }
+
+    /**
+     * Tailnet-lock public key (Ed25519). JTail does not participate in tailnet lock signing, so only the public half
+     * is kept; it is sent at registration the way the Go client sends its own.
+     */
+    private static byte[] newNlPublic() {
+        try {
+            byte[] x509 = java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic().getEncoded();
+            return java.util.Arrays.copyOfRange(x509, x509.length - 32, x509.length);
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     public static NodeIdentity generate() {
-        return new NodeIdentity(X25519.generatePrivate(), X25519.generatePrivate(), X25519.generatePrivate());
+        return new NodeIdentity(X25519.generatePrivate(), X25519.generatePrivate(), X25519.generatePrivate(), newNlPublic());
     }
 
     public byte[] machinePrivate() { return machinePriv.clone(); }
@@ -35,6 +49,7 @@ public final class NodeIdentity {
     public byte[] machinePublic() { return X25519.publicKey(machinePriv); }
     public byte[] nodePublic() { return X25519.publicKey(nodePriv); }
     public byte[] discoPublic() { return X25519.publicKey(discoPriv); }
+    public byte[] nlPublic() { return nlPublic.clone(); }
 
     /** Loads the identity stored in {@code file}, or creates and saves a new one if the file does not exist. */
     public static NodeIdentity loadOrCreate(Path file) {
@@ -42,10 +57,14 @@ public final class NodeIdentity {
             if (Files.exists(file)) {
                 Properties p = new Properties();
                 try (InputStream in = Files.newInputStream(file)) { p.load(in); }
-                return new NodeIdentity(
+                String nl = p.getProperty("nl");
+                NodeIdentity loaded = new NodeIdentity(
                         KeyText.decode(KeyText.MACHINE_PRIVATE, p.getProperty("machine")),
                         KeyText.decode(KeyText.MACHINE_PRIVATE, p.getProperty("node")),
-                        KeyText.decode(KeyText.MACHINE_PRIVATE, p.getProperty("disco")));
+                        KeyText.decode(KeyText.MACHINE_PRIVATE, p.getProperty("disco")),
+                        nl == null ? newNlPublic() : KeyText.decode(KeyText.NODE_PUBLIC, nl));
+                if (nl == null) loaded.save(file); // upgrade older identity files in place
+                return loaded;
             }
             NodeIdentity id = generate();
             id.save(file);
@@ -67,6 +86,7 @@ public final class NodeIdentity {
             p.setProperty("machine", KeyText.encode(KeyText.MACHINE_PRIVATE, machinePriv));
             p.setProperty("node", KeyText.encode(KeyText.MACHINE_PRIVATE, nodePriv));
             p.setProperty("disco", KeyText.encode(KeyText.MACHINE_PRIVATE, discoPriv));
+            p.setProperty("nl", KeyText.encode(KeyText.NODE_PUBLIC, nlPublic));
             try (OutputStream out = Files.newOutputStream(tmp)) { p.store(out, "JTail node identity - keep secret"); }
             Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } finally {
