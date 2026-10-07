@@ -32,6 +32,7 @@ public final class WgDevice implements AutoCloseable {
     public interface Output { void send(WgPeer peer, byte[] datagram); }
 
     private final byte[] privateKey, publicKey, mac1KeyOfUs;
+    private final WgTiming timing;
     private final Output output;
     private final BiConsumer<WgPeer, byte[]> onPacket;
     private final SecureRandom rng = new SecureRandom();
@@ -48,6 +49,11 @@ public final class WgDevice implements AutoCloseable {
     private record Route(IpPrefix prefix, WgPeer peer) {}
 
     public WgDevice(byte[] privateKey, Output output, BiConsumer<WgPeer, byte[]> onPacket) {
+        this(privateKey, output, onPacket, WgTiming.DEFAULT);
+    }
+
+    public WgDevice(byte[] privateKey, Output output, BiConsumer<WgPeer, byte[]> onPacket, WgTiming timing) {
+        this.timing = timing;
         this.privateKey = privateKey.clone();
         this.publicKey = X25519.publicKey(privateKey);
         this.mac1KeyOfUs = Handshake.mac1Key(publicKey);
@@ -63,7 +69,7 @@ public final class WgDevice implements AutoCloseable {
         ByteBuffer k = ByteBuffer.wrap(peerPublic.clone());
         WgPeer existing = peersByKey.get(k);
         if (existing != null) { setAllowedIPs(existing, allowedIPs); return existing; }
-        WgPeer p = new WgPeer(peerPublic.clone(), X25519.scalarMult(privateKey, peerPublic), allowedIPs);
+        WgPeer p = new WgPeer(peerPublic.clone(), X25519.scalarMult(privateKey, peerPublic), allowedIPs, timing);
         peersByKey.put(k, p);
         rebuildRoutes();
         return p;
@@ -125,7 +131,7 @@ public final class WgDevice implements AutoCloseable {
             Keypair kp = usableSendKeypair(peer);
             if (kp != null) {
                 out = encrypt(peer, kp, ipPacket);
-                if (kp.isInitiator && (kp.ageNanos() > REKEY_AFTER_TIME || kp.sendCounter.get() > REKEY_AFTER_MESSAGES)) needHandshake = true;
+                if (kp.isInitiator && (kp.ageNanos() > timing.rekeyAfterNanos() || kp.sendCounter.get() > REKEY_AFTER_MESSAGES)) needHandshake = true;
             } else {
                 if (peer.staged.size() >= MAX_QUEUED_PACKETS) peer.staged.pollFirst();
                 peer.staged.addLast(ipPacket);
@@ -139,7 +145,7 @@ public final class WgDevice implements AutoCloseable {
     private Keypair usableSendKeypair(WgPeer p) {
         Keypair kp = p.current;
         if (kp == null) return null;
-        if (kp.ageNanos() >= REJECT_AFTER_TIME) return null;
+        if (kp.ageNanos() >= timing.rejectAfterNanos()) return null;
         if (Long.compareUnsigned(kp.sendCounter.get(), REJECT_AFTER_MESSAGES) >= 0) return null;
         return kp;
     }
@@ -179,7 +185,7 @@ public final class WgDevice implements AutoCloseable {
         byte[] msg;
         synchronized (peer) {
             long now = System.nanoTime();
-            if (!force && peer.lastInitiationSentNanos != 0 && now - peer.lastInitiationSentNanos < REKEY_TIMEOUT) return;
+            if (!force && peer.lastInitiationSentNanos != 0 && now - peer.lastInitiationSentNanos < timing.rekeyTimeoutNanos()) return;
             if (peer.handshakeAttemptStartNanos == 0) peer.handshakeAttemptStartNanos = now;
             peer.lastInitiationSentNanos = now;
             if (peer.pending != null) indexTable.remove(peer.pending.localIndex);
@@ -197,7 +203,7 @@ public final class WgDevice implements AutoCloseable {
                 System.arraycopy(mac2, 0, msg, 132, 16);
             }
             cancel(peer.retryTimer);
-            peer.retryTimer = timers.schedule(() -> retryHandshake(peer), REKEY_TIMEOUT + rng.nextInt(333) * 1_000_000L, TimeUnit.NANOSECONDS);
+            peer.retryTimer = timers.schedule(() -> retryHandshake(peer), timing.rekeyTimeoutNanos() + rng.nextInt(333) * 1_000_000L, TimeUnit.NANOSECONDS);
         }
         output.send(peer, msg);
     }
@@ -206,7 +212,7 @@ public final class WgDevice implements AutoCloseable {
         if (closed) return;
         synchronized (peer) {
             if (peer.staged.isEmpty() && peer.persistentKeepaliveSeconds == 0) { peer.handshakeAttemptStartNanos = 0; return; }
-            if (System.nanoTime() - peer.handshakeAttemptStartNanos > REKEY_ATTEMPT_TIME) {
+            if (System.nanoTime() - peer.handshakeAttemptStartNanos > timing.rekeyAttemptNanos()) {
                 peer.staged.clear();
                 peer.handshakeAttemptStartNanos = 0;
                 return;
@@ -341,7 +347,7 @@ public final class WgDevice implements AutoCloseable {
         WgPeer peer = (WgPeer) ent[0];
         Keypair kp = (Keypair) ent[1];
         long counter = Handshake.le64(msg, 8);
-        if (kp.ageNanos() >= REJECT_AFTER_TIME || Long.compareUnsigned(counter, REJECT_AFTER_MESSAGES) >= 0) return;
+        if (kp.ageNanos() >= timing.rejectAfterNanos() || Long.compareUnsigned(counter, REJECT_AFTER_MESSAGES) >= 0) return;
         byte[] nonce = new byte[12];
         Handshake.putLe64(nonce, 4, counter);
         byte[] pt;
@@ -370,9 +376,9 @@ public final class WgDevice implements AutoCloseable {
             peer.rxBytes.addAndGet(msg.length);
             if (pt.length > 0 && !peer.keepaliveScheduled) {
                 peer.keepaliveScheduled = true;
-                peer.keepaliveTimer = timers.schedule(() -> keepaliveFire(peer), KEEPALIVE_TIMEOUT, TimeUnit.NANOSECONDS);
+                peer.keepaliveTimer = timers.schedule(() -> keepaliveFire(peer), timing.keepaliveTimeoutNanos(), TimeUnit.NANOSECONDS);
             }
-            if (kp == peer.current && kp.isInitiator && kp.ageNanos() > REJECT_AFTER_TIME - KEEPALIVE_TIMEOUT - REKEY_TIMEOUT) rekey = true;
+            if (kp == peer.current && kp.isInitiator && kp.ageNanos() > timing.rejectAfterNanos() - timing.keepaliveTimeoutNanos() - timing.rekeyTimeoutNanos()) rekey = true;
         }
         if (peer.staged.size() > 0) drainStaged(peer);
         if (rekey) initiate(peer, false);
@@ -388,7 +394,7 @@ public final class WgDevice implements AutoCloseable {
         boolean send;
         synchronized (peer) {
             peer.keepaliveScheduled = false;
-            send = System.nanoTime() - peer.lastSendNanos >= KEEPALIVE_TIMEOUT - 1_000_000L;
+            send = System.nanoTime() - peer.lastSendNanos >= timing.keepaliveTimeoutNanos() - 1_000_000L;
         }
         if (send) sendKeepalive(peer);
     }

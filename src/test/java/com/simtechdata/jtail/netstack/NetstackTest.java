@@ -277,4 +277,33 @@ class NetstackTest {
         c.close();
         ex.shutdownNow();
     }
+
+    @Test @Timeout(30)
+    void keepaliveProbesAnIdlePeerAndKeepsTheConnectionOpen() throws Exception {
+        link();
+        TcpListener l = b.listenTcp(7008);
+        TcpConn c = a.dialTcp(IP_B, 7008, 5000);
+        TcpConn s = l.accept(5000);
+        c.setKeepAlive(true, 300, 100, 5);
+        Thread.sleep(2000);                               // well past idle+interval*probes: probes are answered
+        assertFalse(c.isClosed(), "answered keepalives must keep an idle connection alive");
+        c.write("still-here".getBytes(), 0, 10);
+        byte[] r = new byte[10];
+        int off = 0;
+        while (off < 10) off += s.read(r, off, 10 - off, 3000);
+        assertEquals("still-here", new String(r));
+    }
+
+    @Test @Timeout(30)
+    void keepaliveResetsAConnectionWhosePeerHasVanished() throws Exception {
+        link();
+        TcpListener l = b.listenTcp(7009);
+        TcpConn c = a.dialTcp(IP_B, 7009, 5000);
+        l.accept(5000);
+        c.setKeepAlive(true, 200, 100, 3);
+        ab.blackhole = true;                              // peer silently disappears
+        ba.blackhole = true;
+        IOException e = assertThrows(IOException.class, () -> c.read(new byte[1], 0, 1, 10_000));
+        assertTrue(e instanceof SocketTimeoutException && e.getMessage().contains("keepalive"), String.valueOf(e));
+    }
 }

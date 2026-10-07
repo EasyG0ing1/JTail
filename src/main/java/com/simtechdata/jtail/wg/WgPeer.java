@@ -35,7 +35,10 @@ public final class WgPeer {
 
     final AtomicLong rxBytes = new AtomicLong(), txBytes = new AtomicLong();
 
-    WgPeer(byte[] publicKey, byte[] staticStatic, List<IpPrefix> allowedIPs) {
+    private final WgTiming timing;
+
+    WgPeer(byte[] publicKey, byte[] staticStatic, List<IpPrefix> allowedIPs, WgTiming timing) {
+        this.timing = timing;
         this.publicKey = publicKey;
         this.staticStatic = staticStatic;
         this.allowedIPs = List.copyOf(allowedIPs);
@@ -56,6 +59,6 @@ public final class WgPeer {
 
     /** True if a session with usable keys exists right now. */
     public synchronized boolean hasSession() {
-        return current != null && current.ageNanos() < WgConstants.REJECT_AFTER_TIME;
+        return current != null && current.ageNanos() < timing.rejectAfterNanos();
     }
 }

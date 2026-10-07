@@ -34,9 +34,11 @@ class WgDeviceTest {
         WgPeer peerOfA, peerOfB; // a's view of b, b's view of a
         volatile boolean dropAll;
 
-        Pair(String aIp, String bIp) {
-            a = new WgDevice(privA, (p, d) -> deliver(b, "a", d), (p, ip) -> gotA.add(ip));
-            b = new WgDevice(privB, (p, d) -> deliver(a, "b", d), (p, ip) -> gotB.add(ip));
+        Pair(String aIp, String bIp) { this(aIp, bIp, WgTiming.DEFAULT); }
+
+        Pair(String aIp, String bIp, WgTiming timing) {
+            a = new WgDevice(privA, (p, d) -> deliver(b, "a", d), (p, ip) -> gotA.add(ip), timing);
+            b = new WgDevice(privB, (p, d) -> deliver(a, "b", d), (p, ip) -> gotB.add(ip), timing);
             peerOfA = a.addPeer(X25519.publicKey(privB), List.of(IpPrefix.parse(bIp + "/32")));
             peerOfB = b.addPeer(X25519.publicKey(privA), List.of(IpPrefix.parse(aIp + "/32")));
         }
@@ -132,5 +134,41 @@ class WgDeviceTest {
         assertFalse(w.check(5));      // now older than the window
         assertTrue(w.check(9_999));
         assertFalse(w.check(9_999));
+    }
+
+    @Test @Timeout(60)
+    void rekeysTransparentlyUnderContinuousTraffic() throws Exception {
+        try (Pair p = new Pair("100.64.0.1", "100.64.0.2", WgTiming.fastForTests())) {
+            int sent = 0;
+            long end = System.nanoTime() + 14_000_000_000L; // several rekey cycles (rekey after 2s, hard expiry at 6s)
+            while (System.nanoTime() < end) {
+                p.a.sendPacket(ipv4("100.64.0.1", "100.64.0.2", ("pkt-" + sent).getBytes()));
+                sent++;
+                Thread.sleep(100);
+            }
+            int got = 0;
+            while (p.gotB.poll(2, TimeUnit.SECONDS) != null) got++;
+            assertEquals(sent, got, "no packet may be lost across rekeys");
+            long handshakes = p.wire.stream().filter(d -> d[0] == 1).count();
+            assertTrue(handshakes >= 4, "expected several rekey handshakes, saw " + handshakes);
+        }
+    }
+
+    @Test @Timeout(60)
+    void responderSideSenderRenewsExpiredSessionsByInitiatingItself() throws Exception {
+        try (Pair p = new Pair("100.64.0.1", "100.64.0.2", WgTiming.fastForTests())) {
+            p.a.sendPacket(ipv4("100.64.0.1", "100.64.0.2", "open".getBytes())); // A initiates; B is only the responder
+            assertNotNull(p.gotB.poll(10, TimeUnit.SECONDS));
+            int sent = 0;
+            long end = System.nanoTime() + 14_000_000_000L; // outlives the 6 s hard session limit
+            while (System.nanoTime() < end) {
+                p.b.sendPacket(ipv4("100.64.0.2", "100.64.0.1", ("from-b-" + sent).getBytes()));
+                sent++;
+                Thread.sleep(150);
+            }
+            int got = 0;
+            while (p.gotA.poll(3, TimeUnit.SECONDS) != null) got++;
+            assertTrue(got >= sent - 2, "responder must re-handshake itself when its session expires: sent=" + sent + " got=" + got);
+        }
     }
 }
