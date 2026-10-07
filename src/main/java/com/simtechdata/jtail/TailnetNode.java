@@ -50,9 +50,9 @@ final class TailnetNode implements Tailnet {
     private final NodeIdentity identity;
     private final Hostinfo hostinfo;
     private final ControlClient control;
-    private final DerpManager derp;
-    private final Magicsock ms;
-    private final WgDevice dev;
+    private volatile DerpManager derp;
+    private volatile Magicsock ms;
+    private volatile WgDevice dev;
     private final ExecutorService worker = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "jtail-node");
         t.setDaemon(true);
@@ -67,6 +67,7 @@ final class TailnetNode implements Tailnet {
     private volatile NetMap.Snapshot snap = new NetMap.Snapshot(null, List.of(), null, null, "", List.of(), List.of());
     private volatile Map<String, InetAddress> names = Map.of();
     private volatile boolean homeChosen;
+    private volatile long homeChosenAtNanos;
     private volatile Throwable controlFailure;
     private Thread controlThread;
 
@@ -78,7 +79,11 @@ final class TailnetNode implements Tailnet {
         this.hostinfo = new Hostinfo(cfg.hostname());
         this.hostinfo.requestTags.addAll(cfg.advertiseTags());
         this.control = new ControlClient(cfg.controlUrl(), identity);
-        this.derp = new DerpManager(identity.nodePrivate(), (region, src, data) -> ms().onDerpPacket(region, src, data));
+    }
+
+    /** Builds the data plane. Done after registration because registration may rotate the node key. */
+    private void initDataPlane() throws IOException {
+        this.derp = new DerpManager(identity.nodePrivate(), (region, src, data) -> ms.onDerpPacket(region, src, data));
         this.ms = new Magicsock(identity, derp, cfg.udpPort(), cfg.includeLoopbackEndpoints());
         this.dev = new WgDevice(identity.nodePrivate(), ms::send, (peer, pkt) -> {
             Netstack s = stack;
@@ -87,8 +92,6 @@ final class TailnetNode implements Tailnet {
         ms.bind(dev);
         ms.setEndpointListener(eps -> requestLiteUpdate());
     }
-
-    private Magicsock ms() { return ms; }
 
     static Tailnet join(JTailConfig cfg) {
         TailnetNode n = null;
@@ -108,7 +111,11 @@ final class TailnetNode implements Tailnet {
     // ---- startup ----
 
     private void start() throws IOException {
-        ControlClient.RegisterResult r = registerWithRetry();
+        ControlClient.RegisterResult r = registerWithRetry(null);
+        if (r.nodeKeyExpired()) { // the server remembers this node but its key has expired: rotate and re-register
+            byte[] old = identity.rotateNodeKey();
+            r = registerWithRetry(old);
+        }
         if (!r.error().isEmpty()) throw new JTailException("control server refused registration: " + r.error());
         if (!r.authUrl().isEmpty()) {
             throw new JTailException("the auth key was not accepted for unattended registration; interactive login is "
@@ -117,6 +124,7 @@ final class TailnetNode implements Tailnet {
         if (!r.machineAuthorized()) LOG.log(System.Logger.Level.WARNING,
                 "node registered but is awaiting administrator approval in the tailnet; peers will not be visible yet");
 
+        initDataPlane();
         ms.start();
         ms.refreshEndpoints();
         pushUpdateNow();                       // publishes our disco key and endpoints before streaming
@@ -138,12 +146,12 @@ final class TailnetNode implements Tailnet {
         LOG.log(System.Logger.Level.INFO, "joined tailnet as {0} ({1})", name(), address().getHostAddress());
     }
 
-    private ControlClient.RegisterResult registerWithRetry() throws IOException {
+    private ControlClient.RegisterResult registerWithRetry(byte[] oldNodeKey) throws IOException {
         IOException last = null;
         long deadline = System.nanoTime() + cfg.joinTimeout().toNanos();
         for (int attempt = 0; attempt < 6 && System.nanoTime() < deadline; attempt++) {
             try {
-                return control.register(cfg.authKey(), hostinfo, cfg.ephemeral(), null);
+                return control.register(cfg.authKey(), hostinfo, cfg.ephemeral(), oldNodeKey);
             } catch (ControlException e) {
                 if (e.status() >= 400 && e.status() < 500 && e.status() != 429) {
                     throw new JTailException("control server rejected registration (HTTP " + e.status() + "): " + e.getMessage());
@@ -289,6 +297,7 @@ final class TailnetNode implements Tailnet {
         if (best == 0 && !dm.regions().isEmpty()) best = dm.regions().firstKey();
         if (best == 0) { LOG.log(System.Logger.Level.WARNING, "no DERP relay regions available"); checkReady(); return; }
         hostinfo.preferredDerp = best;
+        homeChosenAtNanos = System.nanoTime();
         derp.setHome(best);
         ms.probeStun(dm);
         pushUpdateNow();
@@ -298,9 +307,13 @@ final class TailnetNode implements Tailnet {
     private void checkReady() {
         if (ready.getCount() == 0 || stack == null) return;
         int home = derp.home();
-        if (home != 0 && !derp.isConnected(home)) {
+        boolean derpGaveUp = home != 0 && System.nanoTime() - homeChosenAtNanos > 10_000_000_000L;
+        if (home != 0 && !derp.isConnected(home) && !derpGaveUp) {
             worker.execute(() -> { try { Thread.sleep(100); } catch (InterruptedException ignored) { } if (!closed.get()) checkReady(); });
             return;
+        }
+        if (derpGaveUp && !derp.isConnected(home)) {
+            LOG.log(System.Logger.Level.WARNING, "DERP relay {0} is unreachable; continuing, direct connections may still work", home);
         }
         if (home != 0 || (snap.derpMap() != null && snap.derpMap().regions().isEmpty() && homeChosen)) ready.countDown();
     }
@@ -318,6 +331,14 @@ final class TailnetNode implements Tailnet {
         if (self == null) throw new JTailException("not joined");
         for (IpPrefix p : self.addresses) if (p.isIPv4()) return p.address();
         return self.addresses.get(0).address();
+    }
+
+    @Override public List<InetAddress> addresses() {
+        Node self = snap.self();
+        if (self == null) throw new JTailException("not joined");
+        List<InetAddress> out = new ArrayList<>();
+        for (IpPrefix p : self.addresses) out.add(p.address());
+        return out;
     }
 
     @Override public String name() {
@@ -402,9 +423,9 @@ final class TailnetNode implements Tailnet {
         control.close();
         Netstack s = stack;
         if (s != null) s.close();
-        ms.close();
-        derp.close();
-        dev.close();
+        if (ms != null) ms.close();
+        if (derp != null) derp.close();
+        if (dev != null) dev.close();
         worker.shutdownNow();
         ready.countDown();
     }

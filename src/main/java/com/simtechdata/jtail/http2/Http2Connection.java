@@ -23,6 +23,8 @@ public final class Http2Connection implements AutoCloseable {
     private static final int DATA = 0, HEADERS = 1, RST_STREAM = 3, SETTINGS = 4, PUSH_PROMISE = 5, PING = 6,
             GOAWAY = 7, WINDOW_UPDATE = 8, CONTINUATION = 9;
     private static final int END_STREAM = 1, END_HEADERS = 4, PADDED = 8, PRIORITY = 0x20, ACK = 1;
+    private static final int MAX_FRAME_SIZE = 16384;           // we never raise SETTINGS_MAX_FRAME_SIZE above the default
+    private static final int MAX_HEADER_BLOCK = 256 * 1024;    // cap on a reassembled HEADERS+CONTINUATION block
     private static final int LOCAL_STREAM_WINDOW = 1 << 20;
     private static final int LOCAL_CONN_WINDOW_BUMP = (1 << 24) - 65535;
 
@@ -164,6 +166,7 @@ public final class Http2Connection implements AutoCloseable {
                 int len = ((hdr[0] & 0xFF) << 16) | ((hdr[1] & 0xFF) << 8) | (hdr[2] & 0xFF);
                 int type = hdr[3] & 0xFF, flags = hdr[4] & 0xFF;
                 int sid = ((hdr[5] & 0x7F) << 24) | ((hdr[6] & 0xFF) << 16) | ((hdr[7] & 0xFF) << 8) | (hdr[8] & 0xFF);
+                if (len > MAX_FRAME_SIZE) throw new IOException("http2: frame of " + len + " bytes exceeds the advertised limit");
                 byte[] p = new byte[len];
                 readFully(p, len);
                 if (headerBlock != null && type != CONTINUATION) throw new IOException("expected CONTINUATION");
@@ -180,6 +183,9 @@ public final class Http2Connection implements AutoCloseable {
                     case CONTINUATION -> {
                         if (headerBlock == null || sid != headerStream) throw new IOException("unexpected CONTINUATION");
                         headerBlock.add(p);
+                        int total = 0;
+                        for (byte[] hb : headerBlock) total += hb.length;
+                        if (total > MAX_HEADER_BLOCK) throw new IOException("http2: header block too large");
                         if ((flags & END_HEADERS) != 0) {
                             ByteArrayOutputStream all = new ByteArrayOutputStream();
                             for (byte[] b : headerBlock) all.writeBytes(b);

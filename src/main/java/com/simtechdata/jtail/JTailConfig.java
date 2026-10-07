@@ -19,6 +19,7 @@ public final class JTailConfig {
     private final int udpPort;
     private final java.time.Duration joinTimeout;
     private final boolean includeLoopbackEndpoints;
+    private final boolean allowInsecureControl;
 
     private JTailConfig(Builder b) {
         this.authKey = b.authKey;
@@ -30,6 +31,7 @@ public final class JTailConfig {
         this.udpPort = b.udpPort;
         this.joinTimeout = b.joinTimeout;
         this.includeLoopbackEndpoints = b.includeLoopback;
+        this.allowInsecureControl = b.allowInsecureControl;
     }
 
     public String authKey() { return authKey; }
@@ -45,6 +47,7 @@ public final class JTailConfig {
     public java.time.Duration joinTimeout() { return joinTimeout; }
     /** Advertise loopback addresses as endpoints (only useful when several nodes share one host, e.g. tests). */
     public boolean includeLoopbackEndpoints() { return includeLoopbackEndpoints; }
+    public boolean allowInsecureControl() { return allowInsecureControl; }
 
     /** Fluent builder; finish with {@link #join()} to connect. */
     public static final class Builder {
@@ -57,6 +60,7 @@ public final class JTailConfig {
         private int udpPort;
         private java.time.Duration joinTimeout = java.time.Duration.ofSeconds(60);
         private boolean includeLoopback;
+        private boolean allowInsecureControl;
 
         /** A reusable auth key (tskey-auth-...) created in the admin console. Required. */
         public Builder authKey(String key) { this.authKey = key; return this; }
@@ -85,15 +89,38 @@ public final class JTailConfig {
         /** Also advertise 127.0.0.1-style endpoints; for tests where several nodes run on one machine. */
         public Builder includeLoopbackEndpoints(boolean v) { this.includeLoopback = v; return this; }
 
+        /**
+         * Permits a plain {@code http://} control URL for a non-loopback host. The control server's key is fetched
+         * over that URL, so an on-path attacker could impersonate the server and capture the auth key; only enable
+         * this on a network you fully trust.
+         */
+        public Builder allowInsecureControl(boolean v) { this.allowInsecureControl = v; return this; }
+
         public JTailConfig build() {
             Objects.requireNonNull(authKey, "authKey is required");
             if (authKey.isBlank()) throw new IllegalArgumentException("authKey must not be blank");
             if (hostname == null) hostname = defaultHostname();
+            checkControlUrl();
             return new JTailConfig(this);
         }
 
         /** Builds the config and joins the tailnet. */
         public Tailnet join() { return JTail.join(build()); }
+
+        private void checkControlUrl() {
+            String scheme = controlUrl.getScheme();
+            if (scheme == null || !(scheme.equals("https") || scheme.equals("http"))) {
+                throw new IllegalArgumentException("controlUrl must be http(s): " + controlUrl);
+            }
+            if (scheme.equals("http") && !allowInsecureControl) {
+                String host = controlUrl.getHost();
+                boolean local = host != null && (host.equals("localhost") || host.startsWith("127.") || host.equals("::1") || host.equals("[::1]"));
+                if (!local) {
+                    throw new IllegalArgumentException("refusing plaintext control URL " + controlUrl
+                            + " (the auth key could be intercepted); use https or allowInsecureControl(true)");
+                }
+            }
+        }
 
         private static String defaultHostname() {
             try { return java.net.InetAddress.getLocalHost().getHostName(); }
