@@ -3,6 +3,7 @@ package com.simtechdata.jtail.derp;
 import com.simtechdata.jtail.crypto.NaClBox;
 import com.simtechdata.jtail.crypto.X25519;
 import com.simtechdata.jtail.json.Json;
+import com.simtechdata.jtail.net.Outbound;
 import com.simtechdata.jtail.tailcfg.Derp;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
@@ -65,9 +66,8 @@ public final class DerpClient implements AutoCloseable {
     /** Connects to {@code node}, upgrades to DERP, and completes the key exchange. */
     public static DerpClient connect(Derp.Node node, byte[] myNodePriv, Listener listener) throws IOException {
         String host = !node.ipv4().isEmpty() && !node.ipv4().equals("none") ? node.ipv4() : node.hostName();
-        Socket raw = new Socket();
-        raw.connect(new InetSocketAddress(host, node.port()), 10_000);
-        raw.setTcpNoDelay(true);
+        Socket raw = Outbound.connect(host, node.hostName(), node.port(),
+                java.net.URI.create("https://" + node.hostName() + ":" + node.port()), 10_000);
         Socket s = raw;
         try {
             String sni = node.certName().isEmpty() ? node.hostName() : node.certName();

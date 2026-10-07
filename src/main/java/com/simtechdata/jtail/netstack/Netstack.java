@@ -283,6 +283,16 @@ public final class Netstack implements TcpConn.Host, AutoCloseable {
         }
     }
 
+    /** Waits up to {@code timeoutMs} for every connection's pending output to be acknowledged by its peer. */
+    public void drain(long timeoutMs) {
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        for (TcpConn c : conns.values()) {
+            long left = (deadline - System.nanoTime()) / 1_000_000L;
+            if (left <= 0) return;
+            c.awaitSendDrained(left);
+        }
+    }
+
     @Override public void close() {
         closed = true;
         for (TcpConn c : conns.values()) c.abort();

@@ -240,6 +240,20 @@ public final class TcpConn {
     public byte[] localAddress() { return localIp.clone(); }
     public int localPort() { return localPort; }
 
+    /** Waits until everything written so far has been acknowledged (or the connection ends); true if drained. */
+    public boolean awaitSendDrained(long timeoutMs) {
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        synchronized (lock) {
+            while (state != State.CLOSED && state != State.TIME_WAIT && error == null
+                    && (sendQ.size() > 0 || (finQueued && lt(sndUna, finSeq + 1)) || state == State.SYN_SENT || state == State.SYN_RCVD)) {
+                long left = (deadline - System.nanoTime()) / 1_000_000L;
+                if (left <= 0) return false;
+                try { lock.wait(Math.min(left, 100)); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+            }
+            return error == null;
+        }
+    }
+
     public boolean isClosed() { synchronized (lock) { return state == State.CLOSED; } }
     public boolean isInputShutdown() { synchronized (lock) { return readShutdown; } }
     public boolean isOutputShutdown() { synchronized (lock) { return finQueued; } }

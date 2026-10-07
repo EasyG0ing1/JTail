@@ -5,6 +5,7 @@ import com.simtechdata.jtail.control.noise.NoiseConn;
 import com.simtechdata.jtail.http2.Http2Connection;
 import com.simtechdata.jtail.json.J;
 import com.simtechdata.jtail.json.Json;
+import com.simtechdata.jtail.net.Outbound;
 import com.simtechdata.jtail.state.NodeIdentity;
 import com.simtechdata.jtail.tailcfg.Keys;
 import com.simtechdata.jtail.tailcfg.MapResponse;
@@ -128,27 +129,7 @@ public final class ControlClient implements AutoCloseable {
     }
 
     private Socket openSocket(String host, int port, boolean tls) throws IOException {
-        Socket raw;
-        Proxy proxy = Proxy.NO_PROXY;
-        try {
-            List<Proxy> ps = ProxySelector.getDefault().select(baseUrl);
-            if (ps != null && !ps.isEmpty()) proxy = ps.get(0);
-        } catch (RuntimeException ignored) { }
-        if (proxy.type() == Proxy.Type.HTTP && proxy.address() instanceof InetSocketAddress pa) {
-            raw = new Socket();
-            raw.connect(new InetSocketAddress(pa.getHostString(), pa.getPort()), 15_000);
-            OutputStream o = raw.getOutputStream();
-            o.write(("CONNECT " + host + ":" + port + " HTTP/1.1\r\nHost: " + host + ":" + port + "\r\n\r\n")
-                    .getBytes(StandardCharsets.US_ASCII));
-            o.flush();
-            InputStream i = raw.getInputStream();
-            String st = readLine(i);
-            while (!readLine(i).isEmpty()) { /* skip proxy headers */ }
-            if (!st.contains(" 200")) { raw.close(); throw new ControlException("proxy CONNECT failed: " + st, parseStatus(st)); }
-        } else {
-            raw = new Socket();
-            raw.connect(new InetSocketAddress(host, port), 15_000);
-        }
+        Socket raw = Outbound.connect(host, host, port, baseUrl, 15_000);
         if (!tls) return raw;
         return ((SSLSocketFactory) SSLSocketFactory.getDefault()).createSocket(raw, host, port, true);
     }
@@ -157,18 +138,7 @@ public final class ControlClient implements AutoCloseable {
         try { return Integer.parseInt(line.split(" ")[1]); } catch (RuntimeException e) { return 0; }
     }
 
-    /** Reads one CRLF-terminated line without over-reading the stream. */
-    private static String readLine(InputStream in) throws IOException {
-        ByteArrayOutputStream b = new ByteArrayOutputStream();
-        int c;
-        while ((c = in.read()) >= 0) {
-            if (c == '\n') break;
-            if (c != '\r') b.write(c);
-            if (b.size() > 16384) throw new IOException("HTTP header line too long");
-        }
-        if (c < 0 && b.size() == 0) throw new EOFException("connection closed during HTTP upgrade");
-        return b.toString(StandardCharsets.ISO_8859_1);
-    }
+    private static String readLine(InputStream in) throws IOException { return Outbound.readLine(in); }
 
     /** The server may send {@code ff ff ff 'T' 'S' <u32 len> <json>} before its first HTTP/2 frame; consume it. */
     private static void skipEarlyPayload(PushbackInputStream in) throws IOException {
