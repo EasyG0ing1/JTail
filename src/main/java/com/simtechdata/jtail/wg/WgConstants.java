@@ -16,10 +16,5 @@ final class WgConstants {
     static final long REKEY_AFTER_MESSAGES = 1L << 60;
     static final long REJECT_AFTER_MESSAGES = -1L - (1L << 13); // 2^64 - 2^13 - 1, as unsigned
     static final long NANOS = 1_000_000_000L;
-    static final long REKEY_AFTER_TIME = 120 * NANOS;
-    static final long REJECT_AFTER_TIME = 180 * NANOS;
-    static final long REKEY_ATTEMPT_TIME = 90 * NANOS;
-    static final long REKEY_TIMEOUT = 5 * NANOS;
-    static final long KEEPALIVE_TIMEOUT = 10 * NANOS;
     static final int MAX_QUEUED_PACKETS = 128;
 }

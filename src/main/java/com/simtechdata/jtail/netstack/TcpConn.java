@@ -70,6 +70,13 @@ public final class TcpConn {
     private int pendingFinSeq;
     private int lastAdvertisedWindow;
 
+    // keepalive (SO_KEEPALIVE)
+    private boolean keepAlive;
+    private long kaIdleMs = 60_000, kaIntervalMs = 15_000;
+    private int kaMaxProbes = 8, kaProbes;
+    private long lastRecvNanos = System.nanoTime();
+    private ScheduledFuture<?> kaTimer;
+
     // lifecycle
     private boolean appClosed, readShutdown;
     private IOException error;
@@ -239,6 +246,41 @@ public final class TcpConn {
     public int remotePort() { return remotePort; }
     public byte[] localAddress() { return localIp.clone(); }
     public int localPort() { return localPort; }
+
+    /**
+     * Enables or disables TCP keepalive: after {@code idleMs} without any traffic, probe every {@code intervalMs};
+     * after {@code maxProbes} unanswered probes the connection is reset. Defaults are 60 s / 15 s / 8 probes.
+     */
+    public void setKeepAlive(boolean on, long idleMs, long intervalMs, int maxProbes) {
+        synchronized (lock) {
+            keepAlive = on;
+            kaIdleMs = idleMs; kaIntervalMs = intervalMs; kaMaxProbes = maxProbes;
+            if (kaTimer != null) { kaTimer.cancel(false); kaTimer = null; }
+            if (on && state != State.CLOSED) kaTimer = host.timers().scheduleWithFixedDelay(this::keepAliveTick, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    public void setKeepAlive(boolean on) { setKeepAlive(on, 60_000, 15_000, 8); }
+
+    private void keepAliveTick() {
+        synchronized (lock) {
+            if (!keepAlive || (state != State.ESTABLISHED && state != State.CLOSE_WAIT)) return;
+            if (sndUna != sndMax) return; // data is in flight; retransmission timing already covers liveness
+            long idleMs = (System.nanoTime() - lastRecvNanos) / 1_000_000L;
+            if (idleMs < kaIdleMs) return;
+            if (kaProbes >= kaMaxProbes) {
+                abortLocked(new SocketTimeoutException("keepalive timed out"), true);
+                return;
+            }
+            kaProbes++;
+            TcpSegment s = new TcpSegment(); // a segment with an old sequence number forces the peer to ACK
+            s.seq = sndUna - 1;
+            s.ack = rcvNxt;
+            s.flags = TcpSegment.ACK;
+            s.window = advertisedWindowField();
+            emit(s);
+        }
+    }
 
     /** Waits until everything written so far has been acknowledged (or the connection ends); true if drained. */
     public boolean awaitSendDrained(long timeoutMs) {
@@ -413,6 +455,8 @@ public final class TcpConn {
 
     void onSegment(TcpSegment seg) {
         synchronized (lock) {
+            lastRecvNanos = System.nanoTime();
+            kaProbes = 0;
             try {
                 processLocked(seg);
             } finally {
@@ -692,6 +736,7 @@ public final class TcpConn {
         if (cause != null && error == null) error = cause;
         cancelRto();
         if (closeTimer != null) closeTimer.cancel(false);
+        if (kaTimer != null) kaTimer.cancel(false);
         lock.notifyAll();
         host.connectionClosed(this);
     }

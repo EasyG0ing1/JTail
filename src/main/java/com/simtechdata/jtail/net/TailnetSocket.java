@@ -105,7 +105,7 @@ public final class TailnetSocket extends Socket {
     @Override public int getSoTimeout() { return soTimeout; }
     @Override public void setTcpNoDelay(boolean on) { noDelay = on; }
     @Override public boolean getTcpNoDelay() { return noDelay; }
-    @Override public void setKeepAlive(boolean on) { keepAlive = on; }
+    @Override public void setKeepAlive(boolean on) { keepAlive = on; conn.setKeepAlive(on); }
     @Override public boolean getKeepAlive() { return keepAlive; }
     @Override public void setSoLinger(boolean on, int linger) { }
     @Override public int getSoLinger() { return -1; }
@@ -123,7 +123,7 @@ public final class TailnetSocket extends Socket {
     @Override public void setPerformancePreferences(int a, int b, int c) { }
 
     @Override public <T> Socket setOption(SocketOption<T> name, T value) throws IOException {
-        if (name == StandardSocketOptions.SO_KEEPALIVE) keepAlive = (Boolean) value;
+        if (name == StandardSocketOptions.SO_KEEPALIVE) setKeepAlive((Boolean) value);
         else if (name == StandardSocketOptions.TCP_NODELAY) noDelay = (Boolean) value;
         return this;
     }
