@@ -73,4 +73,33 @@ class CryptoPrimitivesTest {
         byte[] bad = ct;
         assertThrows(AEADBadTagException.class, () -> new ChaCha20Poly1305(key).open(nonce, bad, aad));
     }
+
+    @Test
+    void hchacha20Vector() {
+        byte[] key = Hex.parse("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        byte[] nonce = Hex.parse("000000090000004a0000000031415927");
+        assertEquals("82413b4227b27bfed30e42508a877d73a0f9e4d58a74a853c12ec41326d3ecdc",
+                Hex.of(XChaCha20Poly1305.hchacha20(key, nonce)));
+    }
+
+    @Test
+    void xchachaRoundTrip() throws Exception {
+        XChaCha20Poly1305 x = new XChaCha20Poly1305(new byte[32]);
+        byte[] nonce = new byte[24];
+        nonce[23] = 9;
+        byte[] ct = x.seal(nonce, "cookie".getBytes(), "aad".getBytes());
+        assertArrayEquals("cookie".getBytes(), x.open(nonce, ct, "aad".getBytes()));
+        assertThrows(AEADBadTagException.class, () -> x.open(nonce, ct, "other".getBytes()));
+    }
+
+    @Test
+    void cachedCipherHandlesManyNonces() throws Exception {
+        ChaCha20Poly1305 c = new ChaCha20Poly1305(new byte[32]);
+        for (int i = 0; i < 100; i++) {
+            byte[] n = new byte[12];
+            n[11] = (byte) i;
+            byte[] ct = c.seal(n, new byte[]{(byte) i}, null);
+            assertArrayEquals(new byte[]{(byte) i}, c.open(n, ct, null));
+        }
+    }
 }
