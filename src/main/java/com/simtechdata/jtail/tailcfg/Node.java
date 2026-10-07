@@ -57,6 +57,18 @@ public final class Node {
         n.homeDerp = J.integer(m, "HomeDERP");
         Map<String, Object> hi = J.obj(m, "Hostinfo");
         if (hi != null) n.hostname = J.str(hi, "Hostname");
+        // Current control servers often leave HomeDERP unset. The peer's relay region is then carried either in the
+        // legacy "DERP" string ("127.3.3.40:<region>") or in the peer's own reported NetInfo.PreferredDERP.
+        if (n.homeDerp == 0) {
+            String legacy = J.str(m, "DERP");
+            if (legacy != null && legacy.startsWith("127.3.3.40:")) {
+                try { n.homeDerp = Integer.parseInt(legacy.substring("127.3.3.40:".length())); } catch (NumberFormatException ignored) { }
+            }
+        }
+        if (n.homeDerp == 0 && hi != null) {
+            Map<String, Object> ni = J.obj(hi, "NetInfo");
+            if (ni != null) n.homeDerp = J.integer(ni, "PreferredDERP");
+        }
         n.tags = J.strings(m, "Tags");
         n.online = J.optBool(m, "Online");
         n.expired = J.bool(m, "Expired");
