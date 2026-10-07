@@ -62,6 +62,7 @@ public final class Magicsock implements AutoCloseable {
     private final Map<String, InetSocketAddress> stunPending = new ConcurrentHashMap<>(); // txid hex -> server
     private final Set<InetSocketAddress> stunMapped = Collections.synchronizedSet(new LinkedHashSet<>());
     private final boolean includeLoopback;
+    private volatile boolean directPaths = true;
     private volatile Consumer<List<Endpoint>> onEndpoints = e -> { };
     private volatile List<Endpoint> lastEndpoints = List.of();
     private volatile boolean closed;
@@ -95,6 +96,9 @@ public final class Magicsock implements AutoCloseable {
     }
 
     public void bind(WgDevice device) { this.device = device; }
+
+    /** When false, all traffic is relayed through DERP and no disco probing is done. */
+    public void setDirectPaths(boolean enabled) { this.directPaths = enabled; }
 
     public void setEndpointListener(Consumer<List<Endpoint>> l) { this.onEndpoints = l; }
 
@@ -149,12 +153,12 @@ public final class Magicsock implements AutoCloseable {
         MsPeer p = wg.userData() instanceof MsPeer m ? m : null;
         if (p == null) return;
         p.lastSendNanos = System.nanoTime();
-        if (p.bestValid()) {
+        if (directPaths && p.bestValid()) {
             try { udp.send(new DatagramPacket(datagram, datagram.length, p.bestAddr)); return; }
             catch (IOException e) { p.bestAddr = null; }
         }
         if (p.homeDerp != 0) derp.send(p.homeDerp, p.nodeKey, datagram);
-        timers.execute(() -> discover(p, false));
+        if (directPaths) timers.execute(() -> discover(p, false));
     }
 
     // ---- inbound ----
@@ -192,6 +196,7 @@ public final class Magicsock implements AutoCloseable {
 
     private void handleUdp(byte[] d, InetSocketAddress from) {
         if (Stun.looksLikeStun(d)) { handleStun(d); return; }
+        if (!directPaths) return;                                   // DERP-only mode: ignore all direct UDP
         if (Disco.looksLikeDisco(d)) { handleDisco(d, from, 0, null); return; }
         WgDevice dev = device;
         if (dev != null) dev.receive(d, from);
@@ -246,7 +251,7 @@ public final class Magicsock implements AutoCloseable {
     // ---- path discovery ----
 
     private void discover(MsPeer p, boolean force) {
-        if (closed || p.disco == null) return;
+        if (closed || p.disco == null || !directPaths) return;
         long now = System.nanoTime();
         synchronized (p) {
             if (!force && (p.bestValid() || now - p.lastDiscoverNanos < DISCOVER_MIN_INTERVAL_NANOS)) return;
@@ -286,6 +291,7 @@ public final class Magicsock implements AutoCloseable {
     }
 
     private void heartbeat() {
+        if (!directPaths) return;
         long now = System.nanoTime();
         for (MsPeer p : byNodeKey.values()) {
             if (p.disco == null) continue;
@@ -304,6 +310,7 @@ public final class Magicsock implements AutoCloseable {
 
     /** Gathers local interface addresses (and previously learned STUN mappings), notifying the listener on change. */
     public List<Endpoint> refreshEndpoints() {
+        if (!directPaths) return lastEndpoints;
         List<Endpoint> eps = new ArrayList<>();
         int port = udp.getLocalPort();
         try {
@@ -335,7 +342,7 @@ public final class Magicsock implements AutoCloseable {
 
     /** Sends STUN binding requests to the DERP nodes in {@code map}; mappings arrive asynchronously. */
     public void probeStun(Derp.Map_ map) {
-        if (map == null) return;
+        if (map == null || !directPaths) return;
         for (Derp.Region r : map.regions().values()) {
             for (Derp.Node n : r.nodes()) {
                 if (n.stunPort() < 0 || n.ipv4().isEmpty() || n.ipv4().equals("none")) continue;
@@ -359,6 +366,7 @@ public final class Magicsock implements AutoCloseable {
 
     /** Forces a disco round with every peer (used after endpoint or netmap changes). */
     public void rediscoverAll() {
+        if (!directPaths) return;
         for (MsPeer p : byNodeKey.values()) timers.execute(() -> discover(p, true));
     }
 

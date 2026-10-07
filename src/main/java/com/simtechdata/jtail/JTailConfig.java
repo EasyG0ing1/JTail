@@ -21,6 +21,7 @@ public final class JTailConfig {
     private final boolean includeLoopbackEndpoints;
     private final boolean allowInsecureControl;
     private final boolean acceptRoutes;
+    private final boolean directPaths;
     private final java.util.function.Consumer<String> loginHandler;
 
     private JTailConfig(Builder b) {
@@ -35,6 +36,7 @@ public final class JTailConfig {
         this.includeLoopbackEndpoints = b.includeLoopback;
         this.allowInsecureControl = b.allowInsecureControl;
         this.acceptRoutes = b.acceptRoutes;
+        this.directPaths = b.directPaths;
         this.loginHandler = b.loginHandler;
     }
 
@@ -54,6 +56,8 @@ public final class JTailConfig {
     public boolean allowInsecureControl() { return allowInsecureControl; }
     /** Whether to route traffic for subnets advertised by peers (subnet routers) in addition to tailnet addresses. */
     public boolean acceptRoutes() { return acceptRoutes; }
+    /** Whether direct UDP paths between peers are attempted (default true); false relays everything via DERP. */
+    public boolean directPaths() { return directPaths; }
     /** Called with a URL the user must open to authorize this node, when no auth key was supplied; may be null. */
     public java.util.function.Consumer<String> loginHandler() { return loginHandler; }
 
@@ -70,6 +74,7 @@ public final class JTailConfig {
         private boolean includeLoopback;
         private boolean allowInsecureControl;
         private boolean acceptRoutes;
+        private boolean directPaths = true;
         private java.util.function.Consumer<String> loginHandler;
 
         /** A reusable auth key (tskey-auth-...) created in the admin console. Required. */
@@ -105,6 +110,12 @@ public final class JTailConfig {
          * this on a network you fully trust.
          */
         public Builder allowInsecureControl(boolean v) { this.allowInsecureControl = v; return this; }
+
+        /**
+         * Controls NAT traversal. Disable to force every packet through DERP relays, e.g. when UDP is blocked or when
+         * you do not want to reveal this host's addresses to peers.
+         */
+        public Builder directPaths(boolean v) { this.directPaths = v; return this; }
 
         /** Routes traffic for subnets that peers advertise (and the tailnet admin approved), like {@code --accept-routes}. */
         public Builder acceptRoutes(boolean v) { this.acceptRoutes = v; return this; }

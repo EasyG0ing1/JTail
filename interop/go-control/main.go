@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 
 	"tailscale.com/derp/derpserver"
 	"tailscale.com/tailcfg"
@@ -25,6 +26,34 @@ import (
 	"tailscale.com/types/key"
 	"tailscale.com/types/logger"
 )
+
+// trackingListener remembers accepted connections so tests can sever them on demand.
+type trackingListener struct {
+	net.Listener
+	mu    sync.Mutex
+	conns []net.Conn
+}
+
+func (t *trackingListener) Accept() (net.Conn, error) {
+	c, err := t.Listener.Accept()
+	if err == nil {
+		t.mu.Lock()
+		t.conns = append(t.conns, c)
+		t.mu.Unlock()
+	}
+	return c, err
+}
+
+func (t *trackingListener) dropAll() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := len(t.conns)
+	for _, c := range t.conns {
+		c.Close()
+	}
+	t.conns = nil
+	return n
+}
 
 func main() {
 	authKey := flag.String("authkey", "", "required auth key (empty = any)")
@@ -42,16 +71,17 @@ func main() {
 
 	// Local DERP relay over TLS (self-signed; InsecureForTests tells clients not to verify).
 	d := derpserver.New(key.NewNode(), logf)
-	dln, err := net.Listen("tcp", "127.0.0.1:0")
+	rawDln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		log.Fatal(err)
 	}
+	dln := &trackingListener{Listener: rawDln}
 	dsrv := httptest.NewUnstartedServer(derpserver.AddWebSocketSupport(d, derpserver.Handler(d)))
 	dsrv.Listener.Close()
 	dsrv.Listener = dln
 	dsrv.Config.TLSNextProto = make(map[string]func(*http.Server, *tls.Conn, http.Handler))
 	dsrv.StartTLS()
-	derpPort := dln.Addr().(*net.TCPAddr).Port
+	derpPort := rawDln.Addr().(*net.TCPAddr).Port
 
 	derpMap := &tailcfg.DERPMap{
 		OmitDefaultRegions: true,
@@ -63,11 +93,12 @@ func main() {
 		},
 	}
 
-	cln, err := net.Listen("tcp", "127.0.0.1:0")
+	rawCln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		log.Fatal(err)
 	}
-	base := "http://" + cln.Addr().String()
+	cln := &trackingListener{Listener: rawCln}
+	base := "http://" + rawCln.Addr().String()
 	dnsCfg := &tailcfg.DNSConfig{Proxied: true, Domains: []string{*domain}}
 	for _, kv := range strings.Split(*extra, ",") {
 		if p := strings.SplitN(kv, "=", 2); len(p) == 2 {
@@ -105,6 +136,12 @@ func main() {
 		switch f[0] {
 		case "quit":
 			return
+		case "dropderp":
+			fmt.Printf("DROPPED_DERP %d\n", dln.dropAll())
+			os.Stdout.Sync()
+		case "dropctl":
+			fmt.Printf("DROPPED_CTL %d\n", cln.dropAll())
+			os.Stdout.Sync()
 		case "completeauth":
 			if len(f) == 2 {
 				fmt.Printf("COMPLETEAUTH %v\n", ctrl.CompleteAuth(f[1]))
