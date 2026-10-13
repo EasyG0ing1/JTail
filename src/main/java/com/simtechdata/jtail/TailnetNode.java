@@ -61,6 +61,8 @@ final class TailnetNode implements Tailnet {
     });
     private final CountDownLatch ready = new CountDownLatch(1);
     private final AtomicBoolean closed = new AtomicBoolean();
+    /** Proxies started with {@code startHttpProxy}; closed with the node. Guarded by itself. */
+    private final java.util.List<HttpProxy> proxies = new java.util.ArrayList<>();
     private final AtomicBoolean liteUpdatePending = new AtomicBoolean();
 
     private volatile Netstack stack;
@@ -438,7 +440,24 @@ final class TailnetNode implements Tailnet {
 
     @Override public javax.net.SocketFactory socketFactory() { return new TailnetSocketFactory(this::dialInternal); }
 
-    @Override public HttpProxy startHttpProxy(int port) throws IOException { return new HttpProxy(this::dialInternal, port); }
+    @Override public HttpProxy startHttpProxy(int port) throws IOException { return trackProxy(port, null, null); }
+
+    @Override public HttpProxy startHttpProxy(int port, String username, String password) throws IOException {
+        java.util.Objects.requireNonNull(username, "username");
+        java.util.Objects.requireNonNull(password, "password");
+        return trackProxy(port, username, password);
+    }
+
+    /** Starts a proxy and remembers it so {@link #close()} can close it; refuses once the node is closed. */
+    private HttpProxy trackProxy(int port, String username, String password) throws IOException {
+        synchronized (proxies) {
+            if (closed.get()) throw new IOException("tailnet is closed");
+            proxies.removeIf(HttpProxy::isClosed);   // drop proxies their owners already closed
+            HttpProxy p = new HttpProxy(this::dialInternal, port, username, password);
+            proxies.add(p);
+            return p;
+        }
+    }
 
     @Override public ServerSocket listen(int port) throws IOException {
         Netstack s = requireStack();
@@ -474,6 +493,9 @@ final class TailnetNode implements Tailnet {
     @Override public void close() {
         if (!closed.compareAndSet(false, true)) return;
         controlUp = false;
+        java.util.List<HttpProxy> toClose;
+        synchronized (proxies) { toClose = List.copyOf(proxies); proxies.clear(); }
+        for (HttpProxy p : toClose) p.close();       // first, so in-flight tunnels end before the stack goes away
         if (cfg.ephemeral()) {
             try { control.logout(hostinfo); } catch (IOException | RuntimeException ignored) { }
         }

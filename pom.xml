@@ -5,7 +5,7 @@
 
     <groupId>com.simtechdata</groupId>
     <artifactId>JTail</artifactId>
-    <version>0.1.6-SNAPSHOT</version>
+    <version>0.9.9</version>
     <packaging>jar</packaging>
     <name>JTail</name>
     <description>Pure-Java, dependency-free Tailscale client library (userspace node, no Go/Rust/native code).</description>
@@ -41,9 +41,15 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
+        <!-- A plain `mvn deploy` uploads nothing; the `release` profile turns this off. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
         <version-junit>5.11.4</version-junit>
         <version-maven-surefire-plugin>3.5.2</version-maven-surefire-plugin>
         <version-maven-compiler-plugin>3.13.0</version-maven-compiler-plugin>
+        <version-maven-clean-plugin>3.5.0</version-maven-clean-plugin>
+        <version-maven-resources-plugin>3.4.0</version-maven-resources-plugin>
+        <version-maven-install-plugin>3.1.4</version-maven-install-plugin>
+        <version-maven-deploy-plugin>3.1.4</version-maven-deploy-plugin>
         <version-maven-gpg-plugin>3.2.8</version-maven-gpg-plugin>
         <version-maven-release-plugin>3.1.1</version-maven-release-plugin>
         <version-maven-scm-provider-gitexe>2.1.0</version-maven-scm-provider-gitexe>
@@ -61,16 +67,14 @@
     </dependencies>
 
     <profiles>
-        <!-- GPG signing, required by Maven Central. Active for `mvn release:perform` (performRelease=true)
-             or explicitly with `mvn -Prelease deploy`. -->
+        <!-- The ONLY way to publish: `mvn -Prelease clean deploy`. It signs the artifacts
+             with GPG (Maven Central requires it) and uploads them to the Central Portal, where they wait until you press
+             Publish. It is never activated automatically, so `mvn compile`, `install` or a plain `deploy` never upload. -->
         <profile>
             <id>release</id>
-            <activation>
-                <property>
-                    <name>performRelease</name>
-                    <value>true</value>
-                </property>
-            </activation>
+            <properties>
+                <maven.deploy.skip>false</maven.deploy.skip>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
@@ -85,12 +89,104 @@
                             </execution>
                         </executions>
                     </plugin>
+                    <!-- A release is never built with tests switched off or ignored. Values written here win over -D
+                         flags, so -DskipTests, -Dmaven.test.skip, -Dmaven.test.failure.ignore and an empty test
+                         run (failIfNoTests) cannot get around the tests when publishing. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skip>false</skip>
+                            <skipTests>false</skipTests>
+                            <skipExec>false</skipExec>
+                            <testFailureIgnore>false</testFailureIgnore>
+                            <failIfNoTests>true</failIfNoTests>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <skip>false</skip>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <configuration>
+                            <skip>false</skip>
+                        </configuration>
+                    </plugin>
+                    <!-- Publishes through the Central Portal (replaces the retired OSSRH/Nexus staging).
+                         Credentials come from a <server><id>central</id> entry in ~/.m2/settings.xml. -->
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>${version-central-publishing-maven-plugin}</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <!-- Uploads stop at "validated" in the Central Portal; press Publish there after checking
+                                 them. Deliberately not a property, so nothing can switch it on from the command line. -->
+                            <autoPublish>false</autoPublish>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Runs tests on JDK 21 even when Maven itself runs on a newer JDK. Opt-in, because it needs a JDK 21 entry in
+             ~/.m2/toolchains.xml: enable it with -DtestOnJdk21, or permanently on one machine by adding
+             <activeProfiles><activeProfile>test-on-jdk21</activeProfile></activeProfiles> to ~/.m2/settings.xml.
+             Without it, tests run on the JDK running Maven (the code is still compiled for release 21). -->
+        <profile>
+            <id>test-on-jdk21</id>
+            <activation>
+                <property>
+                    <name>testOnJdk21</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <jdkToolchain>
+                                <version>21</version>
+                            </jdkToolchain>
+                        </configuration>
+                    </plugin>
                 </plugins>
             </build>
         </profile>
     </profiles>
 
     <build>
+        <!-- Pin the lifecycle plugins Maven would otherwise pick implicitly, so builds are reproducible. -->
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>${version-maven-clean-plugin}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>${version-maven-resources-plugin}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>${version-maven-install-plugin}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>${version-maven-deploy-plugin}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -142,17 +238,12 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${version-maven-surefire-plugin}</version>
-            </plugin>
-            <!-- Publishes to Maven Central through the Central Portal (replaces the retired OSSRH/Nexus staging).
-                 Credentials come from a <server><id>central</id> entry in ~/.m2/settings.xml. -->
-            <plugin>
-                <groupId>org.sonatype.central</groupId>
-                <artifactId>central-publishing-maven-plugin</artifactId>
-                <version>${version-central-publishing-maven-plugin}</version>
-                <extensions>true</extensions>
                 <configuration>
-                    <publishingServerId>central</publishingServerId>
-                    <autoPublish>true</autoPublish>
+                    <systemPropertyVariables>
+                        <!-- Tailscale's test control server (go-control oracle) runs a DERP relay with a self-signed
+                             certificate. Never set this outside tests. -->
+                        <jtail.derp.allowInsecureForTests>true</jtail.derp.allowInsecureForTests>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>
@@ -160,6 +251,7 @@
                 <artifactId>maven-release-plugin</artifactId>
                 <version>${version-maven-release-plugin}</version>
                 <configuration>
+                    <releaseProfiles>release</releaseProfiles>
                     <localCheckout>true</localCheckout>
                     <pushChanges>false</pushChanges>
                     <mavenExecutorId>forked-path</mavenExecutorId>

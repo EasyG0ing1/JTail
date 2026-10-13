@@ -108,4 +108,27 @@ class IntegrationApiTest {
             }
         }
     }
+
+    @Test @Timeout(120)
+    void closingTheTailnetClosesItsProxies() throws Exception {
+        try (Oracles.Running ctl = Oracles.start("go-control", "-authkey", "k")) {
+            String url = ctl.expect("BASEURL ", 20_000).substring("BASEURL ".length());
+            Tailnet a = JTail.network().authKey("k").hostname("proxy-close-a").controlUrl(url).joinTimeout(Duration.ofSeconds(45)).join();
+            HttpProxy open = a.startHttpProxy(0);
+            HttpProxy authenticated = a.startHttpProxy(0, "user", "secret");
+            HttpProxy closedByOwner = a.startHttpProxy(0);
+            closedByOwner.close();
+            int port = open.port();
+            try (Socket s = new Socket("127.0.0.1", port)) { assertTrue(s.isConnected()); }
+
+            a.close();
+
+            assertTrue(open.isClosed());
+            assertTrue(authenticated.isClosed());
+            assertThrows(java.io.IOException.class, () -> new Socket("127.0.0.1", port).close());
+            assertThrows(java.io.IOException.class, () -> a.startHttpProxy(0), "a closed tailnet starts no proxies");
+            assertThrows(java.io.IOException.class, () -> a.startHttpProxy(0, "u", "p"));
+            a.close();                                   // idempotent
+        }
+    }
 }

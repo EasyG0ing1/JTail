@@ -34,19 +34,63 @@ its own node in the tailnet and can reach (and be reached by) every other node, 
 > handshake, the live service. Treat it as a young implementation of a security-sensitive protocol; see
 > [Security notes](#security-notes).
 
+## What JTail is, and what it is not
+
+JTail was written to provide Java programs direct access to a tailnet without the need for a Tailscale client installed at the OS level. I wanted a way to create Java programs that could access back end resources without needing to expose those resources to the Internet. JTail does exactly that.
+
+JTail is a **library that puts your Java program on a tailnet**. It is not a VPN client. It creates no network
+interface, installs no routes and changes no DNS settings, so the operating system never learns that the tailnet
+exists. Only the objects JTail hands to your code can reach tailnet devices; everything else, including code in your own
+application and in the same JVM, cannot.
+
+### What can and cannot reach the tailnet
+
+| Code | What it is | Reaches the tailnet? |
+|---|---|---|
+| `net.dial(host, port)` | a `java.net.Socket` | **yes** |
+| `net.listen(port)` | a `java.net.ServerSocket` | **yes**, accepts connections from tailnet nodes |
+| `net.openUdp(port)` | a `UdpSocket` | **yes** |
+| `net.socketFactory()` | a `javax.net.SocketFactory` | **yes**, for any library that lets you supply one (JDBC drivers, Apache HttpClient, OkHttp, JavaMail, SMB or SSH client libraries, ...) |
+| `net.ping(host, ms)`, `net.resolve(host)` | tailnet-level ping and name lookup | **yes** (this is not the operating system's `ping`) |
+| `net.startHttpProxy(port)` | a local HTTP/HTTPS proxy | **yes**, but only for HTTP(S) clients you point at it, and only after you start it (see below) |
+| `new Socket("db-server", 5432)` | a plain `java.net.Socket` | **no**: it uses the operating system's network and cannot resolve or reach tailnet devices |
+| `HttpClient.newHttpClient()`, `new URL(...).openConnection()` | the JDK's HTTP clients, with no proxy configured | **no**: same reason (give them the JTail proxy, or use `dial`) |
+| `InetAddress.getByName("db-server")` | the JDK's resolver | **no**: it cannot resolve MagicDNS names; use `net.resolve(...)` |
+| `Files.walk(...)`, `Files.newInputStream(...)`, `new File(...)` | Java file APIs | **no**: they cannot open a share on a tailnet machine, and JTail mounts nothing |
+| `ProcessBuilder`, `Runtime.exec` running `curl`, `ssh`, `ping`, `smbclient`, another `java` program | child processes | **no**: they inherit nothing from your JTail session (they can reach HTTP(S) services only through a proxy you started) |
+| A share mounted by the operating system (SMB, NFS, AFP); Finder, Explorer, browsers, `mount` | other programs on the machine | **no**: they are unaffected by JTail |
+| A library that opens its own sockets and offers no `Socket` or `SocketFactory` hook | third-party code | **no**: it cannot use the tailnet |
+
+In short: **if a piece of code did not obtain its connection from a JTail object, it is not on the tailnet.**
+
+A remote service does not need JTail. `dial("fileserver", 445)` is an ordinary TCP connection to whatever listens on
+that tailnet node, such as the SMB service of the operating system. An SMB client library that accepts a custom
+`SocketFactory` can therefore talk to it through `net.socketFactory()`. (This is expected to work but is not covered
+by JTail's tests.)
+
+### The HTTP proxy is deliberate
+
+`startHttpProxy` is the single way to let code outside your JTail objects reach the tailnet, and it is opt-in:
+
+* **It is never started automatically.** 
+* A proxy exists only after your code
+  calls `net.startHttpProxy(...)`.
+* It listens on `127.0.0.1` only and handles HTTP and HTTPS (`CONNECT`).
+* By default **any process on the machine** that can reach the port may use it, and through it your node's tailnet
+  access.
+* Secure the proxy by calling `net.startHttpProxy(port, username, password)` which requires HTTP Basic authentication.
+* OS level programs such as curl could access tailnet resources through the proxy.
+* Java resources such as `java.net.http.HttpClient`, which have no `SocketFactory` hook, can reach the tailnet through the proxy.
+
 ## Quick start
 
-Maven (build from source for now):
-
-```
-mvn install            # unit tests + (skipped) interop tests; produces target/JTail-<version>.jar
-```
+Add the dependency from Maven Central (Java 21+, no other dependencies are pulled in):
 
 ```xml
 <dependency>
   <groupId>com.simtechdata</groupId>
   <artifactId>JTail</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>1.0.0</version>
 </dependency>
 ```
 
@@ -82,7 +126,7 @@ See [`examples/`](examples) for runnable programs.
 | `Tailnet.openUdp(port)` | UDP socket on the tailnet address. |
 | `Tailnet.ping(host, timeoutMs)` | ICMP echo; returns RTT in ms. |
 | `Tailnet.socketFactory()` | A `javax.net.SocketFactory` for libraries that open their own connections (JDBC drivers, Apache HttpClient, OkHttp, JavaMail, ...). |
-| `Tailnet.startHttpProxy(port)` | Local HTTP proxy on 127.0.0.1 (CONNECT + absolute-URI) that forwards through the tailnet, so `java.net.http.HttpClient` and any proxy-aware tool can reach tailnet hosts. |
+| `Tailnet.startHttpProxy(port[, user, password])` | Opt-in local HTTP proxy on 127.0.0.1 (CONNECT + absolute-URI) that forwards through the tailnet, so `java.net.http.HttpClient` and any proxy-aware tool can reach tailnet hosts. Never started automatically; no authentication unless you pass a user name and password. |
 | `Tailnet.peers()` / `address()` / `addresses()` / `name()` | Netmap view of the tailnet and this node. |
 | `Tailnet.resolve(host)` / `isDirect(host)` | Name resolution and path diagnostics (direct UDP vs. DERP relay). |
 | `Tailnet.close()` | Drains pending output, leaves the tailnet (ephemeral nodes are logged out immediately). |
@@ -151,6 +195,9 @@ Without `jtail.oracle.dir` the interop tests are skipped and the pure-Java unit 
 Indicative throughput on a loopback tailnet in a small VM: ~170–220 Mbit/s per TCP stream, entirely in Java.
 
 ## Not implemented (yet)
+
+These are features that may be added later. What JTail deliberately is not (a system-wide VPN) is described in
+[What JTail is, and what it is not](#what-jtail-is-and-what-it-is-not).
 
 Exit nodes and `--advertise-routes` (subnet routes *are* usable with `acceptRoutes(true)`), Tailnet Lock (TKA),
 Taildrop, Tailscale SSH, Serve/Funnel, peer relays (UDP relay servers), DNS-over-HTTPS resolvers, and OAuth client

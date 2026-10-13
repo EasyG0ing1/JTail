@@ -311,11 +311,34 @@ public interface Tailnet extends AutoCloseable {
      * }</pre>
      *
      * @param port the loopback port to listen on, or {@code 0} to choose a free port
-     * @return the running proxy; close it when it is no longer needed
+     * @return the running proxy; close it when it is no longer needed (closing the tailnet closes it too)
      * @throws java.net.BindException if the port is already in use
-     * @throws IOException            if the proxy cannot be started
+     * @throws IOException            if the proxy cannot be started, or this tailnet is already closed
      */
     HttpProxy startHttpProxy(int port) throws IOException;
+
+    /**
+     * Starts the local HTTP proxy described at {@link #startHttpProxy(int)}, requiring HTTP Basic proxy
+     * authentication from every client.
+     *
+     * <p>Without authentication any process on this machine can use the proxy to reach your tailnet as this node.
+     * Credentials protect against other local users and processes; they travel unencrypted over the loopback
+     * interface, which is fine for that purpose but is not a substitute for tailnet ACLs.
+     *
+     * <p>Clients must send {@code Proxy-Authorization: Basic ...}. Requests without it, or with the wrong
+     * credentials, receive {@code 407 Proxy Authentication Required} and are never forwarded. Note that the JDK's
+     * {@link java.net.http.HttpClient} does not answer Basic proxy challenges for HTTPS tunnels unless the system
+     * property {@code jdk.http.auth.tunneling.disabledSchemes} is set to an empty string.
+     *
+     * @param port     the loopback port to listen on, or {@code 0} to choose a free port
+     * @param username the user name clients must present; must not be empty or contain a colon
+     * @param password the password clients must present
+     * @return the running proxy; close it when it is no longer needed (closing the tailnet closes it too)
+     * @throws IllegalArgumentException if the user name is empty or contains a colon
+     * @throws java.net.BindException   if the port is already in use
+     * @throws IOException              if the proxy cannot be started, or this tailnet is already closed
+     */
+    HttpProxy startHttpProxy(int port, String username, String password) throws IOException;
 
     /**
      * Leaves the tailnet and releases all resources (threads, sockets, relay connections).

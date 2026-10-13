@@ -61,6 +61,27 @@ All traffic between nodes is end-to-end encrypted using WireGuard. JTail impleme
 a network interface on the host: only your Java program is part of the tailnet, and other processes on the same machine
 are not affected.
 
+**Only objects obtained from JTail can reach the tailnet.** That means the `Socket` from `dial`, the `ServerSocket`
+from `listen`, the `UdpSocket` from `openUdp`, the `SocketFactory` from `socketFactory()`, `ping` and `resolve`, and,
+for HTTP(S) clients only, the local proxy from `startHttpProxy`. Everything else cannot, even inside the same JVM:
+
+- `new Socket("host", port)`, `HttpClient.newHttpClient()`, `URL.openConnection()` and `InetAddress.getByName(...)`
+  use the operating system's network and cannot resolve or reach tailnet devices.
+- File APIs (`Files.walk`, `File`, `Files.newInputStream`) cannot open a share on a tailnet machine, and an
+  operating-system mount of one (SMB, NFS, AFP) cannot be reached through JTail.
+- Child processes (`ProcessBuilder`, `Runtime.exec`: `curl`, `ssh`, `ping`, `smbclient`, another `java`) have no tailnet
+  access and inherit nothing from your session.
+- Libraries that open their own sockets and offer no way to supply a `Socket` or `SocketFactory` cannot use the tailnet.
+
+A remote service needs no JTail of its own: `dial` is an ordinary TCP connection to whatever listens on that node. A
+client library that accepts a custom `SocketFactory` (an SMB client library, for example) can reach such a service
+through `socketFactory()`; this is expected to work but is not covered by JTail's tests.
+
+The HTTP proxy (see [section 14.2](#142-local-http-proxy)) is the only mechanism that lets code outside JTail's objects,
+such as a child process using `curl --proxy`, reach the tailnet. It is deliberate: **JTail never starts a proxy
+automatically.** Joining a tailnet opens no local port; a proxy exists only after your code calls `startHttpProxy`, and
+close it when you are done (closing the `Tailnet` also closes every proxy it started).
+
 ---
 
 ## 2. Terminology
@@ -97,19 +118,13 @@ are not affected.
 
 ## 4. Adding JTail to your project
 
-JTail is built with Maven. Build and install it into your local repository from the project folder:
-
-```bash
-mvn install
-```
-
-Then add the dependency to your own project's `pom.xml`:
+JTail is published on Maven Central. Add the dependency to your project's `pom.xml`:
 
 ```xml
 <dependency>
     <groupId>com.simtechdata</groupId>
     <artifactId>JTail</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -130,7 +145,7 @@ import com.simtechdata.jtail.Tailnet;
 
 JTail has no runtime dependencies, so nothing else is added to your classpath.
 
-`mvn install` also publishes `-sources` and `-javadoc` jars next to the main jar. With them present, IntelliJ shows the
+JTail is published with `-sources` and `-javadoc` jars next to the main jar. With them present, IntelliJ shows the
 documentation for every method in the code-completion popup and with **Ctrl+Q** (Quick Documentation). If the
 documentation does not appear, re-import the Maven project and choose **Download Sources and Documentation**.
 
@@ -285,6 +300,7 @@ A successful `join()` returns a `Tailnet`. It is the entry point for everything 
 | `connectionCount()` | The number of TCP connections currently tracked (useful for diagnostics). |
 | `socketFactory()` | A `javax.net.SocketFactory` for libraries that open their own connections. |
 | `startHttpProxy(port)` | Starts a local HTTP proxy that forwards through the tailnet. |
+| `startHttpProxy(port, username, password)` | The same, but clients must authenticate with HTTP Basic proxy authentication. |
 | `close()` | Leaves the tailnet and releases all resources. |
 
 `Tailnet` is thread-safe. It can be shared between threads, including virtual threads.
@@ -657,7 +673,45 @@ Details:
 - It supports `CONNECT` (used for HTTPS) and absolute-URI HTTP requests.
 - If the target host is not in your tailnet, the client receives a `502 Bad Gateway` response.
 - Other tools can use it as well, for example `curl -x http://127.0.0.1:PORT http://internal-api:8080/`.
+- A request may contain at most 200 header lines, and no line may be longer than 128 KB. A request over either limit
+  receives `431 Request Header Fields Too Large`.
 - Close the proxy when you no longer need it (try-with-resources does this).
+
+#### Requiring authentication
+
+By default the proxy accepts every connection from the local machine, which means any process on this computer can use
+it to reach your tailnet as this node. If the machine is shared, or you simply want to be sure that only your program
+uses the proxy, start it with a user name and password:
+
+```java
+try (HttpProxy proxy = net.startHttpProxy(0, "jtail", System.getenv("PROXY_PASSWORD"))) {
+    // clients must now send Proxy-Authorization: Basic ...
+}
+```
+
+With authentication enabled:
+
+- Every request, including `CONNECT`, must carry a matching `Proxy-Authorization: Basic` header. Otherwise the proxy
+  answers `407 Proxy Authentication Required` and does not open any tailnet connection.
+- The user name must not be empty and must not contain a colon.
+- The credentials cross the loopback interface unencrypted. That is enough to keep other local users and processes out,
+  but it is not a replacement for your tailnet's ACLs.
+- `curl` supplies them with `--proxy-user jtail:PASSWORD`.
+- The JDK's `HttpClient` can supply them with an `Authenticator`:
+
+  ```java
+  HttpClient client = HttpClient.newBuilder()
+          .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", proxy.port())))
+          .authenticator(new Authenticator() {
+              @Override protected PasswordAuthentication getPasswordAuthentication() {
+                  return new PasswordAuthentication("jtail", password.toCharArray());
+              }
+          })
+          .build();
+  ```
+
+  For `https://` URLs the JDK disables Basic authentication on proxy tunnels by default. Start the JVM with
+  `-Djdk.http.auth.tunneling.disabledSchemes=""` if you need it.
 
 ---
 
@@ -814,6 +868,10 @@ Tailnet net = JTail.network()
 JTail has been tested against Headscale. Use an `https://` URL whenever possible (see
 [Section 22](#22-security-considerations)).
 
+If Headscale runs its own DERP relay, that relay needs a certificate the JVM trusts for its hostname (for example one
+from Let's Encrypt). JTail verifies DERP certificates even when the DERP map marks a relay `InsecureForTests`; see
+[Section 22](#22-security-considerations).
+
 ---
 
 ## 20. Error handling
@@ -905,6 +963,14 @@ Calling `close()` more than once is safe.
 - **Use `https://` for `controlUrl`.** JTail refuses a plain `http://` URL for any host other than the local machine,
   because the control server's key is fetched over that URL and an on-path attacker could intercept your auth key. You
   can override this with `allowInsecureControl(true)`, but only on a network you fully trust.
+- **TLS certificates are always verified.** Connections to an `https://` control server and to DERP relays check the
+  server's certificate and that it matches the hostname. A DERP map can mark a relay `InsecureForTests` (Tailscale's
+  test servers use self-signed certificates), but because the DERP map comes from the control server, JTail ignores
+  that flag unless the JVM is also started with `-Djtail.derp.allowInsecureForTests=true`. Never set that property in
+  production.
+- **Protect the local HTTP proxy if the machine is shared.** `startHttpProxy(port)` accepts connections from every
+  process on the machine, and those processes then reach the tailnet as this node. Use
+  `startHttpProxy(port, username, password)` to require authentication (see [Section 14.2](#142-local-http-proxy)).
 - **ACLs apply.** JTail enforces the access rules your control server distributes. Inbound connection attempts that the
   rules do not allow are refused. If your server never receives connections, check your ACLs.
 - **No independent audit.** JTail is extensively tested, but it has not had an independent security audit. Keep this in
@@ -944,9 +1010,19 @@ They share a `stateDir` or a hostname. Give each instance its own.
 **`join()` rejects the control URL.**
 You passed a plain `http://` URL for a non-local host. Use `https://`.
 
+**Relayed connections fail with a certificate error.**
+A self-hosted DERP relay is using a self-signed certificate or one that does not match its hostname. Give the relay a
+certificate the JVM trusts (see [Section 22](#22-security-considerations)).
+
 ---
 
 ## 24. Limitations
+
+By design (this will not change): JTail is a library, not a system VPN. It creates no network interface, so processes
+and APIs that do not use an object obtained from JTail cannot reach the tailnet; see [section 1](#1-what-is-jtail)
+for the full list.
+
+Not implemented yet:
 
 - **Exit nodes** (routing all internet traffic through another node) are not supported.
 - **Advertising subnet routes** is not supported. Using routes advertised by other nodes works with
@@ -990,7 +1066,7 @@ boolean direct = net.isDirect("other-node");
 
 // 8. Integration with other libraries
 net.socketFactory();
-net.startHttpProxy(0);
+net.startHttpProxy(0);                          // or startHttpProxy(0, user, password)
 
 // 9. Leave
 net.close();

@@ -29,6 +29,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
 /**
@@ -128,7 +130,24 @@ public final class ControlClient implements AutoCloseable {
     private Socket openSocket(String host, int port, boolean tls) throws IOException {
         Socket raw = Outbound.connect(host, host, port, baseUrl, 15_000);
         if (!tls) return raw;
-        return ((SSLSocketFactory) SSLSocketFactory.getDefault()).createSocket(raw, host, port, true);
+        try {
+            return wrapTls(raw, host, port);
+        } catch (IOException | RuntimeException e) {
+            try { raw.close(); } catch (IOException ignored) { }
+            throw e;
+        }
+    }
+
+    /**
+     * Layers TLS over {@code raw} with certificate hostname verification. A layered SSLSocket does not check the
+     * hostname unless asked, and the Noise handshake should not be the only thing authenticating the server.
+     */
+    static SSLSocket wrapTls(Socket raw, String host, int port) throws IOException {
+        SSLSocket ssl = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault()).createSocket(raw, host, port, true);
+        SSLParameters sp = ssl.getSSLParameters();
+        sp.setEndpointIdentificationAlgorithm("HTTPS");
+        ssl.setSSLParameters(sp);
+        return ssl;
     }
 
     private static int parseStatus(String line) {

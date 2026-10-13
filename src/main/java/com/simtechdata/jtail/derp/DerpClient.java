@@ -36,6 +36,12 @@ public final class DerpClient implements AutoCloseable {
     private static final byte[] MAGIC = "DERP🔑".getBytes(StandardCharsets.UTF_8); // "DERP🔑", 8 bytes
     public static final int MAX_PACKET = 64 << 10;
 
+    /**
+     * System property that must be {@code true} before a DERP map's {@code InsecureForTests} flag may disable
+     * certificate checks. The DERP map comes from the control server, so the flag alone is never trusted.
+     */
+    public static final String ALLOW_INSECURE_PROPERTY = "jtail.derp.allowInsecureForTests";
+
     /** Receives events from the server. Called on the client's reader thread. */
     public interface Listener {
         void onPacket(byte[] sourceNodeKey, byte[] data);
@@ -70,10 +76,11 @@ public final class DerpClient implements AutoCloseable {
         Socket s = raw;
         try {
             String sni = node.certName().isEmpty() ? node.hostName() : node.certName();
-            SSLSocket ssl = (SSLSocket) tlsFactory(node.insecureForTests()).createSocket(raw, sni, node.port(), true);
+            boolean insecure = insecureAllowed(node);
+            SSLSocket ssl = (SSLSocket) tlsFactory(insecure).createSocket(raw, sni, node.port(), true);
             SSLParameters sp = ssl.getSSLParameters();
             if (!sni.isEmpty() && !sni.matches("[0-9.:]+")) sp.setServerNames(java.util.List.of(new SNIHostName(sni)));
-            if (!node.insecureForTests()) sp.setEndpointIdentificationAlgorithm("HTTPS");
+            if (!insecure) sp.setEndpointIdentificationAlgorithm("HTTPS");
             ssl.setSSLParameters(sp);
             ssl.startHandshake();
             s = ssl;
@@ -86,6 +93,11 @@ public final class DerpClient implements AutoCloseable {
             try { s.close(); } catch (IOException ignored) { }
             throw e;
         }
+    }
+
+    /** Whether certificate checks are skipped for {@code node}: only when its map entry and the local JVM both opt in. */
+    static boolean insecureAllowed(Derp.Node node) {
+        return node.insecureForTests() && Boolean.getBoolean(ALLOW_INSECURE_PROPERTY);
     }
 
     private static SSLSocketFactory tlsFactory(boolean insecure) throws IOException {

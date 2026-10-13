@@ -122,6 +122,7 @@ func main() {
 		MagicDNSDomain:  *domain,
 		ExplicitBaseURL: base,
 		AllNodesSameUser: true,
+		AllOnline:        true,
 	}
 	go http.Serve(cln, ctrl)
 
