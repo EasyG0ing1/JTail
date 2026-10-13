@@ -43,9 +43,6 @@
         <maven.compiler.release>21</maven.compiler.release>
         <!-- A plain `mvn deploy` uploads nothing; the `release` profile turns this off. -->
         <maven.deploy.skip>true</maven.deploy.skip>
-        <!-- Whether Central publishes an upload by itself once it validates. Always true for a tested release; the
-             upload-untested profile below turns it off so an upload made with -DskipTests can never go public. -->
-        <jtail.autoPublish>true</jtail.autoPublish>
         <version-junit>5.11.4</version-junit>
         <version-maven-surefire-plugin>3.5.2</version-maven-surefire-plugin>
         <version-maven-compiler-plugin>3.13.0</version-maven-compiler-plugin>
@@ -129,18 +126,18 @@
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
-                            <!-- true: the Central Portal releases the deployment to Maven Central by itself as soon as it
-                                 passes validation. A published version can never be changed or removed. -->
-                            <autoPublish>${jtail.autoPublish}</autoPublish>
+                            <!-- Always true, deliberately not a property: the Central Portal releases the deployment to Maven
+                                 Central by itself as soon as it passes validation. A published version can never be
+                                 changed or removed. -->
+                            <autoPublish>true</autoPublish>
                         </configuration>
                     </plugin>
                 </plugins>
             </build>
         </profile>
         <!-- For troubleshooting the upload without waiting for the tests: `mvn clean deploy -DskipTests`.
-             Passing -DskipTests is what switches this profile on. It signs and uploads exactly like the release profile
-             but with autoPublish OFF, so the deployment stops at "Validated" in the Central Portal and is never
-             released automatically; an untested build cannot become public by accident. A deploy without
+             Passing -DskipTests is what switches this profile on. It signs and uploads exactly like the release profile,
+             including autoPublish: if the upload validates, Central PUBLISHES it, tested or not. A deploy without
              -DskipTests (and without -Prelease) uploads nothing. -->
         <profile>
             <id>upload-untested</id>
@@ -152,7 +149,6 @@
             </activation>
             <properties>
                 <maven.deploy.skip>false</maven.deploy.skip>
-                <jtail.autoPublish>false</jtail.autoPublish>
             </properties>
             <build>
                 <plugins>
@@ -175,7 +171,7 @@
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
-                            <autoPublish>${jtail.autoPublish}</autoPublish>
+                            <autoPublish>true</autoPublish>
                         </configuration>
                     </plugin>
                 </plugins>
