@@ -9,7 +9,7 @@
     <packaging>jar</packaging>
     <name>JTail</name>
     <description>Pure-Java, dependency-free Tailscale client library (userspace node, no Go/Rust/native code).</description>
-    <url>https://github.com/EasyG0ing1/${project.artifactId}</url>
+    <url>https://github.com/EasyG0ing1/JTail</url>
 
     <licenses>
         <license>
@@ -43,6 +43,9 @@
         <maven.compiler.release>21</maven.compiler.release>
         <!-- A plain `mvn deploy` uploads nothing; the `release` profile turns this off. -->
         <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- Whether Central publishes an upload by itself once it validates. Always true for a tested release; the
+             upload-untested profile below turns it off so an upload made with -DskipTests can never go public. -->
+        <jtail.autoPublish>true</jtail.autoPublish>
         <version-junit>5.11.4</version-junit>
         <version-maven-surefire-plugin>3.5.2</version-maven-surefire-plugin>
         <version-maven-compiler-plugin>3.13.0</version-maven-compiler-plugin>
@@ -53,7 +56,7 @@
         <version-maven-gpg-plugin>3.2.8</version-maven-gpg-plugin>
         <version-maven-release-plugin>3.1.1</version-maven-release-plugin>
         <version-maven-scm-provider-gitexe>2.1.0</version-maven-scm-provider-gitexe>
-        <version-central-publishing-maven-plugin>0.8.0</version-central-publishing-maven-plugin>
+        <version-central-publishing-maven-plugin>0.11.0</version-central-publishing-maven-plugin>
     </properties>
 
     <!-- Runtime: zero third-party dependencies. JUnit is test-scope only. -->
@@ -67,9 +70,10 @@
     </dependencies>
 
     <profiles>
-        <!-- The ONLY way to publish: `mvn -Prelease clean deploy`. It signs the artifacts
-             with GPG (Maven Central requires it) and uploads them to the Central Portal, where they wait until you press
-             Publish. It is never activated automatically, so `mvn compile`, `install` or a plain `deploy` never upload. -->
+        <!-- The way to publish a release: `mvn -Prelease clean deploy` (compile/publish.sh does this). All tests run and
+             cannot be skipped; the artifacts are signed with GPG (Maven Central requires it) and uploaded to the Central
+             Portal, which publishes them automatically once they validate. Never activated automatically, so
+             `mvn compile`, `install` or a plain `deploy` never upload. -->
         <profile>
             <id>release</id>
             <properties>
@@ -84,7 +88,7 @@
                         <executions>
                             <execution>
                                 <id>sign-artifacts</id>
-                                <phase>verify</phase>
+                                <phase>deploy</phase>
                                 <goals><goal>sign</goal></goals>
                             </execution>
                         </executions>
@@ -98,7 +102,6 @@
                         <configuration>
                             <skip>false</skip>
                             <skipTests>false</skipTests>
-                            <skipExec>false</skipExec>
                             <testFailureIgnore>false</testFailureIgnore>
                             <failIfNoTests>true</failIfNoTests>
                         </configuration>
@@ -126,9 +129,53 @@
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
-                            <!-- Uploads stop at "validated" in the Central Portal; press Publish there after checking
-                                 them. Deliberately not a property, so nothing can switch it on from the command line. -->
-                            <autoPublish>false</autoPublish>
+                            <!-- true: the Central Portal releases the deployment to Maven Central by itself as soon as it
+                                 passes validation. A published version can never be changed or removed. -->
+                            <autoPublish>${jtail.autoPublish}</autoPublish>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- For troubleshooting the upload without waiting for the tests: `mvn clean deploy -DskipTests`.
+             Passing -DskipTests is what switches this profile on. It signs and uploads exactly like the release profile
+             but with autoPublish OFF, so the deployment stops at "Validated" in the Central Portal and is never
+             released automatically; an untested build cannot become public by accident. A deploy without
+             -DskipTests (and without -Prelease) uploads nothing. -->
+        <profile>
+            <id>upload-untested</id>
+            <activation>
+                <!-- Presence of the property (a bare -DskipTests sets it to "true"). -->
+                <property>
+                    <name>skipTests</name>
+                </property>
+            </activation>
+            <properties>
+                <maven.deploy.skip>false</maven.deploy.skip>
+                <jtail.autoPublish>false</jtail.autoPublish>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>${version-maven-gpg-plugin}</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>deploy</phase>
+                                <goals><goal>sign</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>${version-central-publishing-maven-plugin}</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>${jtail.autoPublish}</autoPublish>
                         </configuration>
                     </plugin>
                 </plugins>
