@@ -236,7 +236,7 @@ Tailnet net = JTail.network()
 | `hostname(String)` | The node's name. It should be unique for each instance of your program. | The machine's hostname |
 | `controlUrl(String)` | The control server URL. Only needed for a self-hosted server such as Headscale. | Tailscale's control server |
 | `stateDir(Path)` | A directory where the node identity is persisted so the node keeps its address across restarts. | *none* (new identity on every run) |
-| `ephemeral(boolean)` | If `true`, the node is removed from the tailnet automatically when it goes offline. | `false` (the node persists) |
+| `ephemeral(boolean)` | If `true`, the node is removed from the tailnet automatically when it goes offline. Be mindful of ephemeral resource limits on Tailscale accounts. | `false` (the node persists) |
 | `tag(String)` | Requests an ACL tag such as `tag:worker`. May be called several times. The auth key must be permitted to apply it. | *none* |
 | `joinTimeout(Duration)` | Maximum time `join()` waits before failing. | 60 seconds |
 | `directPaths(boolean)` | If `false`, all traffic is relayed through DERP (see [Section 18](#18-direct-connections-and-relays)). | `true` |
@@ -687,7 +687,7 @@ Notes:
 
 - If two instances use the same hostname, the control server typically assigns the second one a modified name (such as
   `worker-1-1`). Communication still works, but unique hostnames avoid confusion.
-- Use `ephemeral(true)` for short-lived instances so the tailnet is not filled with stale nodes.
+- Use `ephemeral(true)` for short-lived instances so the tailnet is not filled with stale nodes, but be mindful of Tailscale limits with ephemeral resourcess.
 - Use `stateDir` ([next section](#16-persisting-node-identity)) for long-lived instances that must keep their address.
 
 ---
@@ -712,7 +712,7 @@ JTail stores the identity in `identity.properties` inside that directory.
 | With `stateDir` | Without `stateDir` |
 |---|---|
 | The same node and address after every restart. | A new node on every run. |
-| Suitable for services that others depend on. | Suitable for short-lived jobs; combine with `ephemeral(true)`. |
+| Suitable for services that others depend on. | Suitable for short-lived jobs; using `ephemeral(true)` guarantees cleanup after use. |
 
 > **Protect the state directory.** It contains private keys; anyone who can read it can impersonate the node. On
 > POSIX file systems JTail restricts the file to the owning user.
@@ -936,7 +936,7 @@ to a direct path in the background a few seconds after the first traffic. With `
 a relay.
 
 **Every run creates a new node.**
-Use `ephemeral(true)` so stale nodes are removed automatically, or use `stateDir` so the same identity is reused.
+Use `ephemeral(true)` so stale nodes are removed automatically, or use `stateDir` so the same identity is reused. Be mindful of ephemeral resource limits on Tailscale accounts.
 
 **Two instances interfere with each other.**
 They share a `stateDir` or a hostname. Give each instance its own.
