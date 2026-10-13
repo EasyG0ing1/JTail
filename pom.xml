@@ -5,7 +5,7 @@
 
     <groupId>com.simtechdata</groupId>
     <artifactId>JTail</artifactId>
-    <version>0.9.9</version>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
     <name>JTail</name>
     <description>Pure-Java, dependency-free Tailscale client library (userspace node, no Go/Rust/native code).</description>
