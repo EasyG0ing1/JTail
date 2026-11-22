@@ -1,0 +1,115 @@
+
+name: Compatibility / Interoperability
+description: Report compatibility or interoperability problems.
+title: "[COMPATIBILITY] "
+labels:
+  - compatibility
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for problems involving Tailscale, Headscale,
+        Java versions, network environments, or interoperability
+        with other implementations.
+
+        Never include authentication keys or private credentials.
+
+  - type: dropdown
+    id: control_server
+    attributes:
+      label: Control Server
+      options:
+        - Tailscale
+        - Headscale
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: control_version
+    attributes:
+      label: Control Server Version
+      description: Provide the Tailscale or Headscale version if known.
+    validations:
+      required: false
+
+  - type: input
+    id: jtail_version
+    attributes:
+      label: JTail Version
+      placeholder: e.g. 1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: java_version
+    attributes:
+      label: Java Runtime Version
+      placeholder: e.g. OpenJDK 25
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: Operating System
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      options:
+        - Authentication / Registration
+        - Control Protocol / Netmap
+        - WireGuard
+        - DERP
+        - NAT Traversal / Direct Connections
+        - DNS / MagicDNS
+        - TCP / Socket API
+        - UDP
+        - HTTP Proxy
+        - IPv4 / IPv6
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Network Environment
+      description: Describe the relevant network topology, firewall, NAT, relay, or DNS configuration.
+    validations:
+      required: true
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected vs. Actual Behavior
+      description: Explain what should happen and what actually happens.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and Diagnostic Information
+      description: Include relevant logs, exceptions, or protocol observations. Redact sensitive information.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Other relevant information.
+    validations:
+      required: false

@@ -1,0 +1,53 @@
+
+name: Feature Request
+description: Suggest a new feature or improvement.
+title: "[FEATURE] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature suggestions are welcome. Please explain the problem
+        or use case the proposed feature would address.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Use Case
+      description: What are you trying to accomplish that JTail does not currently support?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed Solution
+      description: Describe how you think this could be implemented.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered another approach or workaround?
+    validations:
+      required: false
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example API or Usage
+      description: Provide an example of how you envision using this feature.
+      render: java
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Other context, examples, or references.
+    validations:
+      required: false
